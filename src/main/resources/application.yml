@@ -1,0 +1,75 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: SafeDocs
+
+  datasource:
+    url: jdbc:postgresql://localhost:5438/safe_docs_db
+    username: postgres
+    password: test
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+
+  mail:
+    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:huzaifanaseer074@gmail.com}
+    password: ${SPRING_MAIL_PASSWORD:fnehwdpmjtdxniro}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+    default-encoding: UTF-8
+    protocol: smtp
+
+jwt:
+  secret: "MCsAzvFBHnAv0CWIZonhazMPmT2kkrTSQ8JOVHSRnI8Xo8hdrnRcTQkI6ux3JNJx"
+  encryption-secret: "e1n5j0Gbc1bFRzf9dkyD4KZONmh8ONjUzwdGe8gMn-6EqPshH4YSKxzUYuNqjIpn"
+  access-ttl: "P30D"
+  refresh-ttl: "P30D"
+  pre-auth-ttl: "PT5M"
+  password-reset-ttl: "PT15M"
+  issuer: "AEM"
+  min-secret-key-length: 64
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.orm.jdbc.bind: trace
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.apex.payroll: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Added storage configuration
+storage:
+  provider: s3
+  max-bytes: 10485760
+  allowed-content-types:
+    - image/png
+    - image/jpeg
+    - application/pdf
+  s3:
+    bucket: wiser-helpdesk-dev
+    region: us-east-1
+    endpoint: "http://localhost:19000"
+    path-style: true
+    access-key: admin
+    secret-key: "AdminPW!"
+    auto-create-bucket: true
