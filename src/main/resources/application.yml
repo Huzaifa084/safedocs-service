@@ -42,7 +42,6 @@ jwt:
   secret: "MCsAzvFBHnAv0CWIZonhazMPmT2kkrTSQ8JOVHSRnI8Xo8hdrnRcTQkI6ux3JNJx"
   encryption-secret: "e1n5j0Gbc1bFRzf9dkyD4KZONmh8ONjUzwdGe8gMn-6EqPshH4YSKxzUYuNqjIpn"
   access-ttl: "P30D"
-  refresh-ttl: "P30D"
   pre-auth-ttl: "PT5M"
   password-reset-ttl: "PT15M"
   issuer: "AEM"

@@ -109,14 +109,7 @@ public class GlobalExceptionHandler {
         if (ex instanceof InvalidTokenException) {
             code = APIActionCode.UN_AUTH401;
             detailCode = "INVALID_TOKEN";
-
-            // Provide specific error message for wrong token type
-            if (ex.getMessage().contains("Invalid token type: ACCESS")) {
-                msg = "Access token cannot be used for refresh. Please provide a refresh token.";
-                detailCode = "WRONG_TOKEN_TYPE";
-            } else {
-                msg = "Invalid authentication token";
-            }
+            msg = "Invalid authentication token";
         } else if (ex instanceof TokenExpiredException) {
             code = APIActionCode.UN_AUTH401;
             detailCode = "TOKEN_EXPIRED";

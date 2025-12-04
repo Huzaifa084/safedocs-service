@@ -44,10 +44,6 @@ public class JwtService {
         return buildToken(JwtConfig.TOKEN_TYPE_ACCESS, jwtConfig.getAccessTtlMillis());
     }
 
-    public String generateRefreshToken(long duration) {
-        return buildToken(JwtConfig.TOKEN_TYPE_REFRESH, duration);
-    }
-
     public String generatePasswordResetToken() {
         return buildToken(JwtConfig.TOKEN_TYPE_RESET, jwtConfig.getPasswordResetTtlMillis());
     }

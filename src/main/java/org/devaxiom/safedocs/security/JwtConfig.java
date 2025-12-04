@@ -16,7 +16,6 @@ public class JwtConfig {
     // TODO: Decrease the time to 30 minutes for production
 //    private Duration accessTtl = Duration.ofMinutes(30);
     private Duration accessTtl = Duration.ofDays(30);
-    private Duration refreshTtl = Duration.ofDays(30);
     private Duration preAuthTtl = Duration.ofMinutes(5);
     private Duration passwordResetTtl = Duration.ofMinutes(15);
     private String secret;
@@ -24,7 +23,6 @@ public class JwtConfig {
     private String issuer = "wiser-helpdesk";
     private int minSecretKeyLength = 64;
     public static final String TOKEN_TYPE_ACCESS = "ACCESS";
-    public static final String TOKEN_TYPE_REFRESH = "REFRESH";
     public static final String TOKEN_TYPE_PRE_AUTH = "PRE_AUTH";
     public static final String TOKEN_TYPE_RESET = "PASSWORD_RESET";
 
@@ -36,10 +34,6 @@ public class JwtConfig {
 
     public long getAccessTtlMillis() {
         return accessTtl.toMillis();
-    }
-
-    public long getRefreshTtlMillis() {
-        return refreshTtl.toMillis();
     }
 
     public long getPreAuthTtlMillis() {

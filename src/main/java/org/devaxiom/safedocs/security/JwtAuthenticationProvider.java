@@ -6,6 +6,7 @@ import org.devaxiom.safedocs.exception.InvalidTokenException;
 import org.devaxiom.safedocs.exception.UnauthorizedException;
 import org.devaxiom.safedocs.exception.UserNotFoundException;
 import org.devaxiom.safedocs.model.User;
+import org.devaxiom.safedocs.security.JwtConfig;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -19,14 +20,9 @@ public class JwtAuthenticationProvider {
     private final UserDetailsServiceImpl userDetailsService;
 
     public void authenticateToken(String jwtToken, HttpServletRequest request) {
-        authenticateToken(jwtToken, request, false);
-    }
-
-    public void authenticateToken(String jwtToken, HttpServletRequest request, boolean isRefreshToken) {
-        var claims = jwtService.validate(jwtToken, isRefreshToken ? "REFRESH" : "ACCESS");
+        var claims = jwtService.validate(jwtToken, JwtConfig.TOKEN_TYPE_ACCESS);
         Long userId = jwtService.getUserId(claims);
         Long tokenV = jwtService.getTokenVersion(claims);
-        String tokenId = jwtService.getTokenId(claims);
 
 
         User user = userDetailsService.getUserById(userId);

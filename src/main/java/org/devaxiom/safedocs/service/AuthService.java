@@ -10,7 +10,6 @@ import org.devaxiom.safedocs.exception.UnauthorizedException;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.devaxiom.safedocs.security.GoogleTokenVerifier;
-import org.devaxiom.safedocs.security.JwtAuthenticationProvider;
 import org.devaxiom.safedocs.security.JwtConfig;
 import org.devaxiom.safedocs.security.JwtService;
 import org.devaxiom.safedocs.security.UserDetailsImpl;
@@ -31,7 +30,6 @@ public class AuthService {
     private final JwtService jwtService;
     private final JwtConfig jwtConfig;
     private final GoogleTokenVerifier googleTokenVerifier;
-    private final JwtAuthenticationProvider jwtAuthenticationProvider;
 
     @Transactional
     public AuthResponse loginWithGoogle(String idToken) {
@@ -45,22 +43,6 @@ public class AuthService {
             throw new UnauthorizedException("User account is disabled");
         }
 
-        return issueTokens(user);
-    }
-
-    @Transactional
-    public AuthResponse refresh(String refreshToken) {
-        if (refreshToken == null || refreshToken.isBlank()) {
-            throw new BadRequestException("Refresh token is required");
-        }
-        // Validate and populate SecurityContext using refresh token
-        jwtAuthenticationProvider.authenticateToken(refreshToken, null, true);
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (!(auth != null && auth.getPrincipal() instanceof UserDetailsImpl details)) {
-            throw new UnauthorizedException("Invalid refresh token");
-        }
-        User user = userRepository.findById(details.getId())
-                .orElseThrow(() -> new UnauthorizedException("User not found for refresh"));
         return issueTokens(user);
     }
 
@@ -127,12 +109,10 @@ public class AuthService {
         SecurityContextHolder.getContext().setAuthentication(auth);
 
         String access = jwtService.buildToken(JwtConfig.TOKEN_TYPE_ACCESS, jwtConfig.getAccessTtlMillis());
-        String refresh = jwtService.buildToken(JwtConfig.TOKEN_TYPE_REFRESH, jwtConfig.getRefreshTtlMillis());
         long expiresInSeconds = jwtConfig.getAccessTtlMillis() / 1000;
 
         return new AuthResponse(
                 access,
-                refresh,
                 expiresInSeconds,
                 new UserProfileResponse(
                         user.getId(),

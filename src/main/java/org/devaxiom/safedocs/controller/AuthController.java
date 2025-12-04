@@ -4,7 +4,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.devaxiom.safedocs.dto.auth.AuthResponse;
 import org.devaxiom.safedocs.dto.auth.GoogleLoginRequest;
-import org.devaxiom.safedocs.dto.auth.RefreshTokenRequest;
 import org.devaxiom.safedocs.dto.base.BaseResponseEntity;
 import org.devaxiom.safedocs.dto.base.ResponseBuilder;
 import org.devaxiom.safedocs.service.AuthService;
@@ -25,12 +24,5 @@ public class AuthController {
             @Valid @RequestBody GoogleLoginRequest request) {
         AuthResponse response = authService.loginWithGoogle(request.idToken());
         return ResponseBuilder.success(response, "Login successful");
-    }
-
-    @PostMapping("/refresh")
-    public BaseResponseEntity<AuthResponse> refreshToken(
-            @Valid @RequestBody RefreshTokenRequest request) {
-        AuthResponse response = authService.refresh(request.refreshToken());
-        return ResponseBuilder.success(response, "Token refreshed");
     }
 }
