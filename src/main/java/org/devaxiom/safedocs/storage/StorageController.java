@@ -6,11 +6,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
-import org.devaxiom.safedocs.security.UserDetailsImpl;
 import org.devaxiom.safedocs.service.PrincipleUserService;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,7 +37,7 @@ public class StorageController {
         log.info("Uploading profile image for {}", scope.ownerLabel());
 
         StorageService.UploadResult result = storageService.uploadFile(
-                StorageContext.PROFILES, scope.ownerId(), file, scope, PROFILE_ALLOWED_TYPES);
+                StorageContext.PROFILES, scope.ownerId(), file, uploadedBy(user), PROFILE_ALLOWED_TYPES);
         log.info("Profile image uploaded successfully for {}", scope.ownerLabel());
         return ResponseEntity.ok(result);
     }
@@ -46,14 +45,20 @@ public class StorageController {
     @GetMapping("/presign")
     @Operation(summary = "Generate presigned URL for accessing a stored object",
             description = "Generates a presigned URL for accessing a stored object. " +
-                    "The 'key' parameter must start with 'profiles/{userPublicId}/' for profile images.")
+                    "Profile images must use keys under 'profiles/{userPublicId}/', documents under 'documents/'.")
     public ResponseEntity<Map<String, String>> presign(
             @RequestParam("key") String key) {
 
         Optional<User> session = principleUserService.getCurrentUser();
         User user = session.orElseThrow(() -> new BadRequestException("Unauthorized"));
         ProfileScope scope = resolveProfileScope(user);
-        if (!key.startsWith(scope.keyPrefix())) throw new BadRequestException("Not allowed to access this key");
+        if (key.startsWith(StorageContext.PROFILES.getPrefix())) {
+            if (!key.startsWith(scope.keyPrefix())) {
+                throw new BadRequestException("Not allowed to access this key");
+            }
+        } else if (!key.startsWith(StorageContext.DOCUMENTS.getPrefix())) {
+            throw new BadRequestException("Invalid storage key");
+        }
 
         String url = storageService.presignGetUrl(key);
         return ResponseEntity.ok(Map.of("url", url));
@@ -62,12 +67,21 @@ public class StorageController {
     @PostMapping(value = "/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<StorageService.UploadResult> uploadDocument(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "entityId", required = false) String entityId,
-            @AuthenticationPrincipal UserDetailsImpl principal) {
+            @RequestParam(value = "entityId", required = false) String entityId) {
 
+        Optional<User> session = principleUserService.getCurrentUser();
+        User user = session.orElseThrow(() -> new BadRequestException("Unauthorized"));
         StorageService.UploadResult result = storageService.uploadFile(
-                StorageContext.DOCUMENTS, entityId, file, principal, DOCUMENT_ALLOWED_TYPES);
+                StorageContext.DOCUMENTS, entityId, file, uploadedBy(user), DOCUMENT_ALLOWED_TYPES);
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping(value = "/documents/download")
+    @Operation(summary = "Download a stored document by key")
+    public ResponseEntity<InputStreamResource> downloadDocument(
+            @RequestParam("key") String key) {
+        principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        return storageService.downloadFile(key);
     }
 
     private ProfileScope resolveProfileScope(User user) {
@@ -82,6 +96,13 @@ public class StorageController {
     private record ProfileScope(String ownerId, String keyPrefix, String ownerLabel) {
     }
 
+    private String uploadedBy(User user) {
+        if (user == null) return "unknown";
+        String fullName = user.getFullName();
+        if (fullName != null && !fullName.isBlank()) return fullName.trim();
+        return user.getEmail() != null ? user.getEmail() : "user";
+    }
+
     private static final Set<String> PROFILE_ALLOWED_TYPES = Set.of(
             "image/jpeg", "image/png", "image/gif", "image/webp"
     );
@@ -90,18 +111,4 @@ public class StorageController {
             "application/pdf", "image/jpeg", "image/png",
             "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-
-//    @GetMapping("/download/{key:.+}")
-//    public ResponseEntity<InputStreamResource> downloadFile(
-//            @PathVariable String key,
-//            @AuthenticationPrincipal Object principal) {
-//        // You might want to add context-based authorization here
-//        return storageService.streamFile(key, principal);
-//    }
-
-    // Add a new method in MediaStorageService for generic file streaming
-    // @Transactional(readOnly = true)
-    // public ResponseEntity<InputStreamResource> streamFile(String key, Object principal) {
-    //     // Similar to streamTicketObject but with different authorization logic
-    // }
 }

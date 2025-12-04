@@ -48,6 +48,10 @@ jwt:
   issuer: "AEM"
   min-secret-key-length: 64
 
+auth:
+  google:
+    client-id: "your-google-client-id.apps.googleusercontent.com"
+
 logging:
   level:
     org.hibernate.SQL: debug

@@ -11,6 +11,7 @@ public class PublicEndpoints {
             // --- AUTH ---
             "/api/auth/login",
             "/api/auth/refresh",
+            "/api/auth/google",
             "/api/auth/otp/**",
             "/api/auth/reset/**",
             "/api/auth/invite/complete",
