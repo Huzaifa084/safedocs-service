@@ -16,4 +16,6 @@ public interface FamilyMemberRepository extends JpaRepository<FamilyMember, Long
     Optional<FamilyMember> findByUserIdAndActiveTrue(Long userId);
 
     List<FamilyMember> findByFamilyIdAndRoleAndActiveTrue(Long familyId, FamilyRole role);
+
+    List<FamilyMember> findByFamilyIdAndActiveTrue(Long familyId);
 }

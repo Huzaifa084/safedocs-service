@@ -294,12 +294,12 @@ public class GlobalExceptionHandler {
         meta.put("timestamp", Instant.now());
 
         BaseResponse<?> body = BaseResponse.builder()
-            .success(false)
-            .message(userMsg)
-            .actionCode(action)
-            .errors(List.of(detail))
-            .meta(meta)
-            .build();
+                .success(false)
+                .message(userMsg)
+                .actionCode(action)
+                .errors(List.of(detail))
+                .meta(meta)
+                .build();
 
         BaseResponseEntity<?> response = new BaseResponseEntity<>(body, status);
 

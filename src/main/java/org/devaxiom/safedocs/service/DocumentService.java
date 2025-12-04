@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.devaxiom.safedocs.dto.document.DocumentListItem;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
+import org.devaxiom.safedocs.dto.document.DocumentPageResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
 import org.devaxiom.safedocs.enums.DocumentShareStatus;
 import org.devaxiom.safedocs.enums.DocumentStatus;
@@ -16,7 +17,6 @@ import org.devaxiom.safedocs.model.*;
 import org.devaxiom.safedocs.repository.DocumentRepository;
 import org.devaxiom.safedocs.repository.DocumentShareRepository;
 import org.devaxiom.safedocs.repository.FamilyMemberRepository;
-import org.devaxiom.safedocs.repository.FamilyRepository;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.devaxiom.safedocs.storage.StorageContext;
 import org.devaxiom.safedocs.storage.StorageService;
@@ -27,8 +27,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -40,13 +45,21 @@ public class DocumentService {
             "application/pdf",
             "image/jpeg",
             "image/png",
+            "image/gif",
+            "image/tiff",
             "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "text/csv"
     );
 
     private final DocumentRepository documentRepository;
     private final DocumentShareRepository documentShareRepository;
-    private final FamilyRepository familyRepository;
+    private final FamilyService familyService;
     private final FamilyMemberRepository familyMemberRepository;
     private final UserRepository userRepository;
     private final StorageService storageService;
@@ -63,7 +76,7 @@ public class DocumentService {
         doc.setCategory(cmd.category());
         doc.setExpiryDate(cmd.expiryDate());
         if (cmd.visibility() == DocumentVisibility.FAMILY) {
-            Family family = ensureFamily(currentUser);
+            Family family = familyService.ensureFamilyForUser(currentUser);
             doc.setFamily(family);
         }
         doc.setStatus(DocumentStatus.ACTIVE);
@@ -147,15 +160,87 @@ public class DocumentService {
         return docs.stream().map(this::toListItem).toList();
     }
 
-    public List<DocumentListItem> listSharedWith(User user) {
+    public DocumentPageResponse listSharedWith(User user, int page, int size, String search) {
         String email = normalizeEmail(user.getEmail());
         List<DocumentShare> shares = documentShareRepository.findByRecipientEmailAndStatus(
                 email, DocumentShareStatus.ACTIVE);
-        return shares.stream()
+        List<Document> docs = shares.stream()
                 .map(DocumentShare::getDocument)
                 .filter(doc -> doc.getStatus() == DocumentStatus.ACTIVE)
-                .map(this::toListItem)
+                .filter(doc -> matchesSearch(doc, search))
                 .toList();
+
+        int pageIndex = Math.max(0, page);
+        int pageSize = size <= 0 ? 20 : size;
+        int from = pageIndex * pageSize;
+        int to = Math.min(from + pageSize, docs.size());
+        List<DocumentListItem> items = from >= docs.size()
+                ? List.of()
+                : docs.subList(from, to).stream().map(this::toListItem).toList();
+        return new DocumentPageResponse(items, pageIndex, pageSize, docs.size());
+    }
+
+    public DocumentPageResponse listWithFilters(DocumentFilter filter, User user) {
+        if (filter.visibility == null) throw new BadRequestException("type is required");
+        List<Document> base = switch (filter.visibility) {
+            case PERSONAL -> documentRepository.findByOwnerIdAndVisibilityAndStatus(
+                    user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
+            case FAMILY -> {
+                Optional<FamilyMember> membership = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
+                if (membership.isEmpty()) yield List.of();
+                Long familyId = membership.get().getFamily().getId();
+                yield documentRepository.findByFamilyIdAndStatus(familyId, DocumentStatus.ACTIVE, DEFAULT_SORT)
+                        .stream()
+                        .filter(d -> d.getVisibility() == DocumentVisibility.FAMILY)
+                        .toList();
+            }
+            case SHARED -> {
+                // shared by me
+                List<Document> owned = documentRepository.findByOwnerIdAndVisibilityAndStatus(
+                        user.getId(), DocumentVisibility.SHARED, DocumentStatus.ACTIVE, DEFAULT_SORT);
+                // shared with me
+                List<DocumentShare> shares = documentShareRepository.findByRecipientEmailAndStatus(
+                        normalizeEmail(user.getEmail()), DocumentShareStatus.ACTIVE);
+                List<Document> withMe = shares.stream()
+                        .map(DocumentShare::getDocument)
+                        .filter(doc -> doc.getStatus() == DocumentStatus.ACTIVE)
+                        .toList();
+                Set<Document> combined = new HashSet<>();
+                combined.addAll(owned);
+                combined.addAll(withMe);
+                yield combined.stream().sorted((a, b) -> {
+                    LocalDate ea = a.getExpiryDate();
+                    LocalDate eb = b.getExpiryDate();
+                    if (ea == null && eb == null) return a.getTitle().compareToIgnoreCase(b.getTitle());
+                    if (ea == null) return 1;
+                    if (eb == null) return -1;
+                    return ea.compareTo(eb);
+                }).toList();
+            }
+        };
+
+        List<Document> filtered = base.stream()
+                .filter(d -> filter.category == null || (d.getCategory() != null && d.getCategory().equalsIgnoreCase(filter.category)))
+                .filter(d -> filter.search == null || matchesSearch(d, filter.search))
+                .filter(d -> {
+                    if (filter.expiryFrom == null && filter.expiryTo == null) return true;
+                    LocalDate e = d.getExpiryDate();
+                    if (e == null) return false;
+                    boolean after = filter.expiryFrom == null || !e.isBefore(filter.expiryFrom);
+                    boolean before = filter.expiryTo == null || !e.isAfter(filter.expiryTo);
+                    return after && before;
+                })
+                .toList();
+
+        int page = Math.max(0, filter.page);
+        int size = filter.size <= 0 ? 20 : filter.size;
+        int from = page * size;
+        int to = Math.min(from + size, filtered.size());
+        List<DocumentListItem> items = from >= filtered.size()
+                ? List.of()
+                : filtered.subList(from, to).stream().map(this::toListItem).toList();
+
+        return new DocumentPageResponse(items, page, size, filtered.size());
     }
 
     public void deleteDocument(UUID documentId, User user) {
@@ -169,6 +254,16 @@ public class DocumentService {
         Document doc = getActiveDocument(documentId);
         assertOwnerForShared(doc, currentUser);
         return addShares(doc, emails);
+    }
+
+    public List<DocumentShareResponse> listShares(UUID documentId, User currentUser) {
+        Document doc = getActiveDocument(documentId);
+        assertOwnerForShared(doc, currentUser);
+        return documentShareRepository.findByDocumentIdAndStatus(doc.getId(), DocumentShareStatus.ACTIVE)
+                .stream()
+                .map(ds -> new DocumentShareResponse(ds.getId(), ds.getRecipientEmail(),
+                        Boolean.TRUE.equals(ds.getCanEdit()), ds.getStatus()))
+                .toList();
     }
 
     public void removeShare(UUID documentId, Long shareId, User currentUser) {
@@ -204,7 +299,8 @@ public class DocumentService {
             share.setCanEdit(false);
             userRepository.findByEmail(email).ifPresent(share::setRecipientUser);
             share = documentShareRepository.save(share);
-            created.add(new DocumentShareResponse(share.getId(), share.getRecipientEmail(), Boolean.TRUE.equals(share.getCanEdit()), share.getStatus()));
+            created.add(new DocumentShareResponse(share.getId(), share.getRecipientEmail(),
+                    Boolean.TRUE.equals(share.getCanEdit()), share.getStatus()));
         }
         return created;
     }
@@ -274,25 +370,6 @@ public class DocumentService {
         }
     }
 
-    private Family ensureFamily(User user) {
-        return familyMemberRepository.findByUserIdAndActiveTrue(user.getId())
-                .map(FamilyMember::getFamily)
-                .orElseGet(() -> {
-                    Family family = Family.builder()
-                            .name("Family of " + user.getFullName())
-                            .build();
-                    family = familyRepository.save(family);
-                    FamilyMember head = FamilyMember.builder()
-                            .family(family)
-                            .user(user)
-                            .role(FamilyRole.HEAD)
-                            .active(true)
-                            .build();
-                    familyMemberRepository.save(head);
-                    return family;
-                });
-    }
-
     private void validateCommand(DocumentCommand cmd) {
         if (cmd.title() == null || cmd.title().isBlank()) throw new BadRequestException("Title is required");
         if (cmd.visibility() == null) throw new BadRequestException("Visibility is required");
@@ -311,6 +388,13 @@ public class DocumentService {
                 doc.getStorageMimeType(),
                 doc.getOwner() != null ? doc.getOwner().getFullName() : null
         );
+    }
+
+    private boolean matchesSearch(Document doc, String search) {
+        if (search == null || search.isBlank()) return true;
+        String term = search.trim().toLowerCase();
+        return (doc.getTitle() != null && doc.getTitle().toLowerCase().contains(term))
+                || (doc.getCategory() != null && doc.getCategory().toLowerCase().contains(term));
     }
 
     private DocumentListItem toListItem(Document doc) {
@@ -334,6 +418,17 @@ public class DocumentService {
             DocumentVisibility visibility,
             LocalDate expiryDate,
             List<String> shareWith
+    ) {
+    }
+
+    public record DocumentFilter(
+            DocumentVisibility visibility,
+            String category,
+            String search,
+            LocalDate expiryFrom,
+            LocalDate expiryTo,
+            int page,
+            int size
     ) {
     }
 }

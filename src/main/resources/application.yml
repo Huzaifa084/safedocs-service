@@ -6,8 +6,8 @@ spring:
     name: SafeDocs
 
   datasource:
-    url: jdbc:postgresql://localhost:5438/safe_docs_db
-    username: postgres
+    url: jdbc:postgresql://postgres:5438/safe_docs_db
+    username: root
     password: test
     driver-class-name: org.postgresql.Driver
 
@@ -56,7 +56,7 @@ logging:
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    com.apex.payroll: DEBUG
+    org.devaxiom.safedocs: DEBUG
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
@@ -69,7 +69,7 @@ storage:
     - image/jpeg
     - application/pdf
   s3:
-    bucket: wiser-helpdesk-dev
+    bucket: safedocs
     region: us-east-1
     endpoint: "http://localhost:19000"
     path-style: true

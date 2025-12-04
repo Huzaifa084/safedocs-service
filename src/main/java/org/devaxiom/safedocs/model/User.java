@@ -23,10 +23,7 @@ import java.util.UUID;
 @DynamicUpdate
 @Table(
         name = "app_user",
-        uniqueConstraints = @UniqueConstraint(columnNames = "email"),
-        indexes = {
-                @Index(name = "idx_role_active", columnList = "role_id, is_active")
-        }
+        uniqueConstraints = @UniqueConstraint(columnNames = "email")
 )
 public class User extends AbstractAuditable<Long> {
 

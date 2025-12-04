@@ -6,4 +6,5 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ReminderLogRepository extends JpaRepository<ReminderLog, Long> {
+    boolean existsByDocumentIdAndRecipientEmailAndReminderType(Long documentId, String recipientEmail, String reminderType);
 }

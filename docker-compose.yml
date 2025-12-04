@@ -1,17 +1,19 @@
-name: safedocs_dev
+name: safedocs
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: safedocs_dev_pg
+    container_name: safedocs_pg
     restart: unless-stopped
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: test
-      POSTGRES_DB: safedocs_db
+      POSTGRES_DB: safe_docs_db
       PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:5438:5432"
     volumes:
-      - postgres_data_dev:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
       # Optional: init scripts if you need them later
       # - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -21,13 +23,10 @@ services:
       retries: 5
       start_period: 20s
     networks: [ app_network ]
-    # Optional: expose for DBeaver / local access
-    # ports:
-    #   - "127.0.0.1:15432:5432"
 
   minio:
     image: minio/minio
-    container_name: safedocs_dev_minio
+    container_name: safedocs_minio
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: admin
@@ -37,7 +36,7 @@ services:
       - "127.0.0.1:19000:9000"  # MinIO API
       - "127.0.0.1:19001:9001"  # MinIO Console
     volumes:
-      - minio_data_dev:/data
+      - minio_data:/data
     healthcheck:
       test: ["CMD","curl","-f","http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -50,5 +49,5 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data_dev:
-  minio_data_dev:
+  postgres_data:
+  minio_data:

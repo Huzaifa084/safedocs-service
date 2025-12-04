@@ -5,9 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.devaxiom.safedocs.dto.base.BaseResponseEntity;
 import org.devaxiom.safedocs.dto.base.ResponseBuilder;
 import org.devaxiom.safedocs.dto.document.AddShareRequest;
-import org.devaxiom.safedocs.dto.document.DocumentListItem;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
+import org.devaxiom.safedocs.dto.document.DocumentPageResponse;
+import org.devaxiom.safedocs.dto.document.DocumentListItem;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
@@ -42,7 +43,8 @@ public class DocumentController {
             @RequestParam(value = "expiryDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryDate,
             @RequestParam(value = "shareWith", required = false) List<String> shareWith) {
 
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        User user = principleUserService.getCurrentUser().orElseThrow(()
+                -> new BadRequestException("Unauthorized"));
         DocumentVisibility vis = parseVisibility(visibility);
         var cmd = new DocumentService.DocumentCommand(title, category, vis, expiryDate, shareWith);
         DocumentResponse resp = documentService.createDocument(cmd, file, user);
@@ -65,22 +67,36 @@ public class DocumentController {
     }
 
     @GetMapping
-    public BaseResponseEntity<List<DocumentListItem>> list(
-            @RequestParam("type") String type) {
+    public BaseResponseEntity<DocumentPageResponse> list(
+            @RequestParam("type") String type,
+            @RequestParam(value = "category", required = false) String category,
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "expiryFrom", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryFrom,
+            @RequestParam(value = "expiryTo", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryTo,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
         DocumentVisibility vis = parseVisibility(type);
-        List<DocumentListItem> items = switch (vis) {
-            case PERSONAL -> documentService.listPersonal(user);
-            case FAMILY -> documentService.listFamily(user);
-            case SHARED -> documentService.listSharedBy(user);
-        };
-        return ResponseBuilder.success(items, "Documents fetched");
+        DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
+                vis,
+                category,
+                search,
+                expiryFrom,
+                expiryTo,
+                page,
+                size
+        );
+        DocumentPageResponse resp = documentService.listWithFilters(filter, user);
+        return ResponseBuilder.success(resp, "Documents fetched");
     }
 
     @GetMapping("/shared/with-me")
-    public BaseResponseEntity<List<DocumentListItem>> sharedWithMe() {
+    public BaseResponseEntity<DocumentPageResponse> sharedWithMe(
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        List<DocumentListItem> items = documentService.listSharedWith(user);
+        DocumentPageResponse items = documentService.listSharedWith(user, page, size, search);
         return ResponseBuilder.success(items, "Shared documents fetched");
     }
 
@@ -114,6 +130,14 @@ public class DocumentController {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
         documentService.removeShare(parseId(id), shareId, user);
         return ResponseBuilder.success("Share entry removed");
+    }
+
+    @GetMapping("/{id}/share")
+    public BaseResponseEntity<List<DocumentShareResponse>> listShares(
+            @PathVariable("id") String id) {
+        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        List<DocumentShareResponse> shares = documentService.listShares(parseId(id), user);
+        return ResponseBuilder.success(shares, "Share recipients fetched");
     }
 
     @GetMapping("/{id}/download")

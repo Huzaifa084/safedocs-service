@@ -30,6 +30,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final JwtConfig jwtConfig;
     private final GoogleTokenVerifier googleTokenVerifier;
+    private final FamilyService familyService;
 
     @Transactional
     public AuthResponse loginWithGoogle(String idToken) {
@@ -99,6 +100,8 @@ public class AuthService {
                 .providerId(profile.providerId())
                 .build();
         user = userRepository.save(user);
+        // Create default family as head
+        familyService.ensureFamilyForUser(user);
         log.info("Created new Google user {}", user.getEmail());
         return user;
     }
