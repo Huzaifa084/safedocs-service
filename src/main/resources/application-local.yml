@@ -49,7 +49,7 @@ jwt:
 
 auth:
   google:
-    client-id: "1090470659344-ohqamrvu9mg19galvecjhn0ao776r5rm.apps.googleusercontent.com"
+    client-id: "1090470659344-nnc7f0t91oup1u0rlskp9t8gtdaod9vc.apps.googleusercontent.com"
 
 logging:
   level:
