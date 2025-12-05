@@ -1,6 +1,28 @@
 name: safedocs
 
 services:
+  app:
+    build: .
+    image: safedocs-app:latest
+    container_name: safedocs_app
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://safedocs_pg:5432/safe_docs_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: test
+      SPRING_MAIL_HOST: smtp.gmail.com
+      SPRING_MAIL_PORT: 587
+      SPRING_MAIL_USERNAME: ${SPRING_MAIL_USERNAME:-huzaifanaseer074@gmail.com}
+      SPRING_MAIL_PASSWORD: ${SPRING_MAIL_PASSWORD:-fnehwdpmjtdxniro}
+      STORAGE_S3_ENDPOINT: http://safedocs_minio:9000
+      STORAGE_S3_ACCESS_KEY: admin
+      STORAGE_S3_SECRET_KEY: AdminPW!
+    ports:
+      - "127.0.0.1:18084:8080"
+    depends_on:
+      - postgres
+      - minio
+    networks: [ app_network ]
   postgres:
     image: postgres:16-alpine
     container_name: safedocs_pg
@@ -10,8 +32,7 @@ services:
       POSTGRES_PASSWORD: test
       POSTGRES_DB: safe_docs_db
       PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - "127.0.0.1:5438:5432"
+    # No external port mapping to avoid collision; internal-only
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Optional: init scripts if you need them later
@@ -32,9 +53,7 @@ services:
       MINIO_ROOT_USER: admin
       MINIO_ROOT_PASSWORD: AdminPW!
     command: server --console-address ":9001" /data
-    ports:
-      - "127.0.0.1:19000:9000"  # MinIO API
-      - "127.0.0.1:19001:9001"  # MinIO Console
+    # No external ports; app uses internal service name
     volumes:
       - minio_data:/data
     healthcheck:

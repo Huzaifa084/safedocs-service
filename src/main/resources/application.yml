@@ -6,9 +6,9 @@ spring:
     name: SafeDocs
 
   datasource:
-    url: jdbc:postgresql://postgres:5438/safe_docs_db
-    username: root
-    password: test
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/safe_docs_db}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:test}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -49,7 +49,7 @@ jwt:
 
 auth:
   google:
-    client-id: "your-google-client-id.apps.googleusercontent.com"
+    client-id: "1090470659344-ohqamrvu9mg19galvecjhn0ao776r5rm.apps.googleusercontent.com"
 
 logging:
   level:
@@ -71,8 +71,8 @@ storage:
   s3:
     bucket: safedocs
     region: us-east-1
-    endpoint: "http://localhost:19000"
+    endpoint: ${STORAGE_S3_ENDPOINT:"http://localhost:19000"}
     path-style: true
-    access-key: admin
-    secret-key: "AdminPW!"
+    access-key: ${STORAGE_S3_ACCESS_KEY:admin}
+    secret-key: ${STORAGE_S3_SECRET_KEY:"AdminPW!"}
     auto-create-bucket: true
