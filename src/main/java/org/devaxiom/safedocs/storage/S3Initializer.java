@@ -9,6 +9,8 @@ import org.springframework.util.StringUtils;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
+import java.net.URISyntaxException;
+
 @Component
 @RequiredArgsConstructor
 @Slf4j
@@ -19,6 +21,20 @@ public class S3Initializer {
 
     @EventListener(ApplicationReadyEvent.class)
     public void createBucketIfNotExists() {
+        try {
+            doCreateBucketIfNotExists();
+        } catch (RuntimeException ex) {
+            if (ex.getCause() instanceof URISyntaxException uriEx) {
+                log.error("S3 bucket initialization skipped due to invalid endpoint URI. "
+                                + "Check storage.s3.endpoint / STORAGE_S3_ENDPOINT. Cause: {}",
+                        uriEx.getMessage());
+                return;
+            }
+            throw ex;
+        }
+    }
+
+    private void doCreateBucketIfNotExists() {
         if (!s3Props.isAutoCreateBucket()) {
             log.info("S3 auto-create bucket disabled; skipping bucket initialization");
             return;
