@@ -11,7 +11,7 @@ services:
       POSTGRES_DB: safe_docs_db
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "127.0.0.1:5438:5432"
+      - "127.0.0.1:5448:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Optional: init scripts if you need them later

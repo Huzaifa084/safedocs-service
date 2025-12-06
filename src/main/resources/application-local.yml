@@ -5,8 +5,15 @@ spring:
   application:
     name: SafeDocs
 
+  # Use local Docker Compose file when running with 'local' profile
+  docker:
+    compose:
+      enabled: true
+      file: docker-compose-local.yml
+
   datasource:
-    url: jdbc:postgresql://postgres:5438/safe_docs_db
+    # Point to the locally exposed Postgres port from docker-compose-local.yml
+    url: jdbc:postgresql://localhost:5448/safe_docs_db
     username: root
     password: test
     driver-class-name: org.postgresql.Driver
