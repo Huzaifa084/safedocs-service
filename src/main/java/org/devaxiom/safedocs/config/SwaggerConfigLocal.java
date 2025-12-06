@@ -4,20 +4,15 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
-import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 
 @Configuration
-@Profile("!local")
-public class SwaggerConfig {
+public class SwaggerConfigLocal {
 
     @Bean
     public OpenAPI openAPI() {
         return new OpenAPI()
-                // Use relative server URL so Swagger UI calls the same scheme/host
-                .addServersItem(new Server().url("/").description("Current host"))
                 .info(new Info()
                         .title("Apex Enterprise Management API")
                         .description("API Documentation for Apex Application")
