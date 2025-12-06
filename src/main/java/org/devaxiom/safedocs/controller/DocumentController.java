@@ -22,8 +22,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
+
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -39,14 +42,18 @@ public class DocumentController {
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title,
             @RequestParam(value = "category", required = false) String category,
-            @RequestParam("visibility") String visibility,
+            @Parameter(
+                    description = "Document visibility",
+                    schema = @Schema(implementation = DocumentVisibility.class),
+                    example = "PERSONAL"
+            )
+            @RequestParam("visibility") DocumentVisibility visibility,
             @RequestParam(value = "expiryDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryDate,
             @RequestParam(value = "shareWith", required = false) List<String> shareWith) {
 
         User user = principleUserService.getCurrentUser().orElseThrow(()
                 -> new BadRequestException("Unauthorized"));
-        DocumentVisibility vis = parseVisibility(visibility);
-        var cmd = new DocumentService.DocumentCommand(title, category, vis, expiryDate, shareWith);
+        var cmd = new DocumentService.DocumentCommand(title, category, visibility, expiryDate, shareWith);
         DocumentResponse resp = documentService.createDocument(cmd, file, user);
         return ResponseBuilder.success(resp, "Document created");
     }
@@ -68,17 +75,23 @@ public class DocumentController {
 
     @GetMapping
     public BaseResponseEntity<DocumentPageResponse> list(
-            @RequestParam("type") String type,
+            @Parameter(
+                    description = "Visibility filter",
+                    schema = @Schema(implementation = DocumentVisibility.class),
+                    example = "SHARED"
+            )
+            @RequestParam("type") DocumentVisibility type,
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "search", required = false) String search,
+            @Parameter(description = "Filter from date (YYYY-MM-DD)", example = "2025-12-06")
             @RequestParam(value = "expiryFrom", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryFrom,
+            @Parameter(description = "Filter to date (YYYY-MM-DD)", example = "2025-12-31")
             @RequestParam(value = "expiryTo", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryTo,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        DocumentVisibility vis = parseVisibility(type);
         DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
-                vis,
+                type,
                 category,
                 search,
                 expiryFrom,
@@ -146,14 +159,7 @@ public class DocumentController {
         return documentService.download(parseId(id), user);
     }
 
-    private DocumentVisibility parseVisibility(String value) {
-        if (value == null || value.isBlank()) throw new BadRequestException("Visibility is required");
-        try {
-            return DocumentVisibility.valueOf(value.trim().toUpperCase());
-        } catch (IllegalArgumentException ex) {
-            throw new BadRequestException("Invalid visibility type");
-        }
-    }
+    // Enum request parameters for visibility and type are handled by Spring automatically
 
     private UUID parseId(String raw) {
         try {

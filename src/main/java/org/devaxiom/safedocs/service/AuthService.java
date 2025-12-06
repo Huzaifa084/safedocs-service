@@ -127,4 +127,20 @@ public class AuthService {
                 )
         );
     }
+
+    @Transactional
+    public AuthResponse devLogin(String email, String secret, boolean enabled, String expectedSecret) {
+        if (!enabled) {
+            throw new UnauthorizedException("Dev login is disabled");
+        }
+        if (expectedSecret == null || !expectedSecret.equals(secret)) {
+            throw new UnauthorizedException("Invalid dev login secret");
+        }
+        User user = userRepository.findByEmail(email.trim().toLowerCase())
+                .orElseThrow(() -> new UnauthorizedException("Dev user not found"));
+        if (Boolean.FALSE.equals(user.getIsActive()) || Boolean.TRUE.equals(user.getDeleted())) {
+            throw new UnauthorizedException("User account is disabled");
+        }
+        return issueTokens(user);
+    }
 }

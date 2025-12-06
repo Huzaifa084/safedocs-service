@@ -5,10 +5,10 @@ spring:
   application:
     name: SafeDocs
 
-  # Use local Docker Compose file when running with 'local' profile
+  # Disable Spring Boot Docker Compose integration for the 'local' profile
   docker:
     compose:
-      enabled: true
+      enabled: false
       file: docker-compose-local.yml
 
   datasource:
@@ -83,3 +83,11 @@ storage:
     access-key: admin
     secret-key: "AdminPW!"
     auto-create-bucket: true
+
+dev:
+  login:
+    enabled: ${DEV_LOGIN_ENABLED:true}
+    secret: ${DEV_LOGIN_SECRET:pass123}
+    email: ${DEV_USER_EMAIL:sysowner@yopmail.com}
+    first-name: ${DEV_USER_FIRST_NAME:Dev}
+    last-name: ${DEV_USER_LAST_NAME:User}

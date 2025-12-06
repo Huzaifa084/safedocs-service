@@ -17,12 +17,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("update User u set u.tokenVersion = u.tokenVersion + 1 where u.id = :id")
     void incrementTokenVersion(Long id);
 
-    @EntityGraph(attributePaths = {"role"})
     Optional<User> findByUsername(String username);
 
-    @EntityGraph(attributePaths = {"role"})
     Optional<User> findByEmail(String normalized);
 
-    @EntityGraph(attributePaths = {"role"})
     Optional<User> findById(Long id);
 }

@@ -9,7 +9,7 @@ public class PublicEndpoints {
     public static final List<String> PUBLIC_ENDPOINTS = List.of(
 
             // --- AUTH ---
-            "/api/auth/login",
+            "/api/auth/dev",
             "/api/auth/google",
             "/api/auth/otp/**",
             "/api/auth/reset/**",
