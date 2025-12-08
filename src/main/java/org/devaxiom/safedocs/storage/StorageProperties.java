@@ -10,7 +10,7 @@ import java.util.Set;
 @Component
 @ConfigurationProperties(prefix = "storage")
 public class StorageProperties {
-    private long maxBytes = 5242880;
+    private long maxBytes = 15728640; // default 15 MB
     private Set<String> allowedContentTypes;
     private int retentionDays = 90;
     private int tmpRetentionHours = 24;

@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.util.StringUtils;
+import org.springframework.lang.Nullable;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -15,6 +16,7 @@ import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Set;
 
@@ -75,14 +77,14 @@ public class S3Config {
 
     private String resolvePresignerEndpoint(S3Props props) {
         if (StringUtils.hasText(props.getPresignerEndpoint())) {
-            return props.getPresignerEndpoint();
+            return normalizeEndpoint(props.getPresignerEndpoint(), "storage.s3.presigner-endpoint");
         }
         return resolveEndpoint(props);
     }
 
     private String resolveEndpoint(S3Props props) {
         if (StringUtils.hasText(props.getEndpoint())) {
-            return props.getEndpoint();
+            return normalizeEndpoint(props.getEndpoint(), "storage.s3.endpoint");
         }
         String[] profiles = environment.getActiveProfiles();
         boolean isLocalProfile = Arrays.stream(profiles).anyMatch(LOCAL_PROFILES::contains);
@@ -93,5 +95,24 @@ public class S3Config {
             return DEFAULT_MINIO_ENDPOINT;
         }
         return null;
+    }
+
+    @Nullable
+    private String normalizeEndpoint(String raw, String propName) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        try {
+            // Allow Docker hostnames with underscores; just ensure overall URI parses.
+            URI.create(trimmed);
+            return trimmed;
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid {} '{}': {}", propName, raw, e.getMessage());
+            return null;
+        }
     }
 }

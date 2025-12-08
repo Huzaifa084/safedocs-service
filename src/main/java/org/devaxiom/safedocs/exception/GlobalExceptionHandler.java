@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.sql.SQLException;
 import java.time.Instant;
@@ -357,6 +358,13 @@ public class GlobalExceptionHandler {
         String valueStr = value != null ? value.toString() : "null";
         String msg = "Invalid value '" + valueStr + "' for parameter '" + name + "'. Expected " + expected;
         return ResponseBuilder.badRequest(name, msg);
+    }
+
+    // 400: multipart too large (file or request exceeds configured limits)
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public BaseResponseEntity<?> handleMaxUpload(MaxUploadSizeExceededException ex) {
+        String msg = "Maximum upload size exceeded (limit 15 MB)";
+        return errorResponse(ex, msg, APIActionCode.BAD400, "MAX_UPLOAD_SIZE_EXCEEDED");
     }
 
     // 500: catch-all
