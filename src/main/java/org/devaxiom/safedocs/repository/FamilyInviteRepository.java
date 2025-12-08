@@ -16,4 +16,8 @@ public interface FamilyInviteRepository extends JpaRepository<FamilyInvite, Long
     boolean existsByFamilyIdAndEmailAndStatus(Long familyId, String email, FamilyInviteStatus status);
 
     List<FamilyInvite> findByFamilyIdAndStatus(Long familyId, FamilyInviteStatus status);
+
+    List<FamilyInvite> findByFamilyId(Long familyId);
+
+    List<FamilyInvite> findByEmailAndStatus(String email, FamilyInviteStatus status);
 }

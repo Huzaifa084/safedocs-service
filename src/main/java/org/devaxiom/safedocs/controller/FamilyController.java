@@ -8,6 +8,7 @@ import org.devaxiom.safedocs.dto.family.CreateFamilyRequest;
 import org.devaxiom.safedocs.dto.family.FamilyMemberResponse;
 import org.devaxiom.safedocs.dto.family.FamilyProfileResponse;
 import org.devaxiom.safedocs.dto.family.FamilySummaryResponse;
+import org.devaxiom.safedocs.dto.family.FamilyInviteResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
 import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
 import org.devaxiom.safedocs.exception.BadRequestException;
@@ -80,6 +81,12 @@ public class FamilyController {
         return ResponseBuilder.success("Invite rejected");
     }
 
+    @GetMapping("/invites")
+    public BaseResponseEntity<List<FamilyInviteResponse>> myInvites() {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.listPendingInvites(user), "Pending invites fetched");
+    }
+
     @DeleteMapping("/{familyId}/members/{userId}")
     public BaseResponseEntity<?> removeMember(@PathVariable String familyId, @PathVariable("userId") Long userId) {
         User user = currentUser();
@@ -92,6 +99,13 @@ public class FamilyController {
         User user = currentUser();
         familyService.leaveFamily(user, parseUuid(familyId));
         return ResponseBuilder.success("Left family");
+    }
+
+    @DeleteMapping("/{familyId}")
+    public BaseResponseEntity<?> deleteFamily(@PathVariable String familyId) {
+        User user = currentUser();
+        familyService.deleteFamily(user, parseUuid(familyId));
+        return ResponseBuilder.success("Family deleted");
     }
 
     private UUID parseUuid(String raw) {

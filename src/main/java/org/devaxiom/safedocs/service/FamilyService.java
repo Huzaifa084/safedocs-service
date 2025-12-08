@@ -5,21 +5,26 @@ import org.devaxiom.safedocs.dto.family.CreateFamilyRequest;
 import org.devaxiom.safedocs.dto.family.FamilyMemberResponse;
 import org.devaxiom.safedocs.dto.family.FamilyProfileResponse;
 import org.devaxiom.safedocs.dto.family.FamilySummaryResponse;
+import org.devaxiom.safedocs.dto.family.FamilyInviteResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
 import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
+import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.FamilyInviteStatus;
 import org.devaxiom.safedocs.enums.FamilyRole;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.exception.ResourceNotFoundException;
+import org.devaxiom.safedocs.model.Document;
 import org.devaxiom.safedocs.model.Family;
 import org.devaxiom.safedocs.model.FamilyInvite;
 import org.devaxiom.safedocs.model.FamilyMember;
 import org.devaxiom.safedocs.model.User;
+import org.devaxiom.safedocs.repository.DocumentRepository;
 import org.devaxiom.safedocs.repository.FamilyInviteRepository;
 import org.devaxiom.safedocs.repository.FamilyMemberRepository;
 import org.devaxiom.safedocs.repository.FamilyRepository;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.devaxiom.safedocs.mail.EmailService;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +42,7 @@ public class FamilyService {
     private final FamilyMemberRepository familyMemberRepository;
     private final UserRepository userRepository;
     private final FamilyInviteRepository familyInviteRepository;
+    private final DocumentRepository documentRepository;
     private final EmailService emailService;
 
     @Transactional(readOnly = true)
@@ -177,6 +183,23 @@ public class FamilyService {
         familyInviteRepository.save(invite);
     }
 
+    @Transactional(readOnly = true)
+    public List<FamilyInviteResponse> listPendingInvites(User currentUser) {
+        String email = normalizeEmail(currentUser.getEmail());
+        return familyInviteRepository.findByEmailAndStatus(email, FamilyInviteStatus.PENDING)
+                .stream()
+                .map(inv -> new FamilyInviteResponse(
+                        inv.getPublicId(),
+                        inv.getFamily() != null ? inv.getFamily().getPublicId() : null,
+                        inv.getFamily() != null ? inv.getFamily().getName() : null,
+                        inv.getEmail(),
+                        inv.getInvitedBy() != null ? inv.getInvitedBy().getFullName() : null,
+                        inv.getInvitedBy() != null ? inv.getInvitedBy().getEmail() : null,
+                        inv.getStatus()
+                ))
+                .toList();
+    }
+
     @Transactional
     public void removeMember(User currentUser, UUID familyPublicId, Long memberUserId) {
         FamilyMember headMembership = requireMembershipWithRole(familyPublicId, currentUser, FamilyRole.HEAD);
@@ -201,6 +224,35 @@ public class FamilyService {
         }
         membership.setActive(false);
         familyMemberRepository.save(membership);
+    }
+
+    @Transactional
+    public void deleteFamily(User currentUser, UUID familyPublicId) {
+        FamilyMember headMembership = requireMembershipWithRole(familyPublicId, currentUser, FamilyRole.HEAD);
+        Family family = headMembership.getFamily();
+
+        // remove members (all states)
+        List<FamilyMember> members = familyMemberRepository.findByFamilyId(family.getId());
+        familyMemberRepository.deleteAll(members);
+        familyMemberRepository.flush();
+
+        // remove invites
+        List<FamilyInvite> invites = familyInviteRepository.findByFamilyId(family.getId());
+        familyInviteRepository.deleteAll(invites);
+        familyInviteRepository.flush();
+
+        // retire all family documents (any status) and detach FK
+        List<Document> docs = documentRepository.findByFamilyId(family.getId());
+        docs.forEach(d -> {
+            if (d.getStatus() == DocumentStatus.ACTIVE) {
+                d.setStatus(DocumentStatus.DELETED);
+            }
+            d.setFamily(null);
+        });
+        documentRepository.saveAll(docs);
+        documentRepository.flush();
+
+        familyRepository.delete(family);
     }
 
     private Family requireMembership(UUID familyPublicId, User user) {
@@ -249,17 +301,52 @@ public class FamilyService {
         }
     }
 
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase();
+    }
+
     private void sendInviteEmail(FamilyInvite invite) {
-        String subject = "SafeDocs: Family invite";
+        String subject = "You’re invited to a SafeDocs family";
         String body = """
                 <html>
-                <body style="font-family: Arial, sans-serif; color: #111;">
-                  <p>You have been invited to join a family on SafeDocs.</p>
-                  <p>Invite code: <strong>%s</strong></p>
-                  <p>Please open the app and accept the invite.</p>
+                <body style="margin:0;padding:0;background:#f6f8fb;font-family:Arial,sans-serif;color:#111;">
+                  <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" style="padding:32px 0;">
+                    <tr>
+                      <td align="center">
+                        <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:12px;box-shadow:0 6px 18px rgba(17,24,39,0.08);overflow:hidden;">
+                          <tr>
+                            <td style="background:#1d4ed8;color:#fff;padding:18px 24px;font-size:18px;font-weight:700;">SafeDocs</td>
+                          </tr>
+                          <tr>
+                            <td style="padding:28px 24px 16px 24px;">
+                              <h2 style="margin:0 0 12px 0;font-size:22px;color:#0f172a;">You’re invited to join a family</h2>
+                              <p style="margin:0 0 10px 0;font-size:15px;color:#334155;">
+                                %s has invited you to join their SafeDocs family workspace.
+                              </p>
+                              <p style="margin:0 0 10px 0;font-size:15px;color:#334155;">
+                                Use this invite code to accept in the app:
+                              </p>
+                              <div style="margin:16px 0;padding:14px 16px;border:1px dashed #1d4ed8;border-radius:10px;background:#eff6ff;font-size:16px;font-weight:700;color:#1d4ed8;letter-spacing:0.5px;text-align:center;">
+                                %s
+                              </div>
+                              <p style="margin:0 0 12px 0;font-size:15px;color:#334155;">
+                                Open SafeDocs, go to <strong>Family</strong> &gt; <strong>Invites</strong>, and paste the code to accept.
+                              </p>
+                              <p style="margin:0;font-size:13px;color:#94a3b8;">If you weren’t expecting this, you can ignore this email.</p>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="padding:18px 24px 24px 24px;font-size:12px;color:#94a3b8;text-align:right;">
+                              SafeDocs · Securely share and protect your documents
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
                 </body>
                 </html>
-                """.formatted(invite.getPublicId());
+                """.formatted(currentUser.getFullName() != null ? currentUser.getFullName() : "A SafeDocs user", invite.getPublicId());
         try {
             emailService.sendEmail(invite.getEmail(), subject, body);
         } catch (Exception ignored) {
