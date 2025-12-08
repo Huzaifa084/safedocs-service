@@ -17,6 +17,7 @@ import org.devaxiom.safedocs.model.*;
 import org.devaxiom.safedocs.repository.DocumentRepository;
 import org.devaxiom.safedocs.repository.DocumentShareRepository;
 import org.devaxiom.safedocs.repository.FamilyMemberRepository;
+import org.devaxiom.safedocs.repository.FamilyRepository;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.devaxiom.safedocs.storage.StorageContext;
 import org.devaxiom.safedocs.storage.StorageService;
@@ -75,8 +76,8 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final DocumentShareRepository documentShareRepository;
-    private final FamilyService familyService;
     private final FamilyMemberRepository familyMemberRepository;
+    private final FamilyRepository familyRepository;
     private final UserRepository userRepository;
     private final StorageService storageService;
 
@@ -92,8 +93,13 @@ public class DocumentService {
         doc.setCategory(cmd.category());
         doc.setExpiryDate(cmd.expiryDate());
         if (cmd.visibility() == DocumentVisibility.FAMILY) {
-            Family family = familyService.ensureFamilyForUser(currentUser);
+            if (cmd.familyId() == null) {
+                throw new BadRequestException("familyId is required for FAMILY documents");
+            }
+            Family family = requireFamilyMembership(cmd.familyId(), currentUser);
             doc.setFamily(family);
+        } else {
+            doc.setFamily(null);
         }
         doc.setStatus(DocumentStatus.ACTIVE);
         doc.setPublicId(UUID.randomUUID());
@@ -163,10 +169,10 @@ public class DocumentService {
     }
 
     public List<DocumentListItem> listFamily(User user) {
-        Optional<FamilyMember> membership = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
-        if (membership.isEmpty()) return List.of();
-        Long familyId = membership.get().getFamily().getId();
-        List<Document> docs = documentRepository.findByFamilyIdAndStatus(familyId, DocumentStatus.ACTIVE, DEFAULT_SORT);
+        List<FamilyMember> memberships = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
+        if (memberships.isEmpty()) return List.of();
+        List<Long> familyIds = memberships.stream().map(m -> m.getFamily().getId()).toList();
+        List<Document> docs = documentRepository.findByFamilyIdInAndStatus(familyIds, DocumentStatus.ACTIVE, DEFAULT_SORT);
         return docs.stream().filter(d -> d.getVisibility() == DocumentVisibility.FAMILY).map(this::toListItem).toList();
     }
 
@@ -202,10 +208,20 @@ public class DocumentService {
             case PERSONAL -> documentRepository.findByOwnerIdAndVisibilityAndStatus(
                     user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
             case FAMILY -> {
-                Optional<FamilyMember> membership = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
-                if (membership.isEmpty()) yield List.of();
-                Long familyId = membership.get().getFamily().getId();
-                yield documentRepository.findByFamilyIdAndStatus(familyId, DocumentStatus.ACTIVE, DEFAULT_SORT)
+                List<FamilyMember> memberships = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
+                if (memberships.isEmpty()) yield List.of();
+                List<Long> familyIds = memberships.stream()
+                        .map(m -> m.getFamily().getId())
+                        .toList();
+                if (filter.familyId != null) {
+                    Family family = familyRepository.findByPublicId(filter.familyId)
+                            .orElseThrow(() -> new BadRequestException("Family not found"));
+                    if (!familyIds.contains(family.getId())) {
+                        throw new UnauthorizedException("Not a member of this family");
+                    }
+                    familyIds = List.of(family.getId());
+                }
+                yield documentRepository.findByFamilyIdInAndStatus(familyIds, DocumentStatus.ACTIVE, DEFAULT_SORT)
                         .stream()
                         .filter(d -> d.getVisibility() == DocumentVisibility.FAMILY)
                         .toList();
@@ -402,7 +418,9 @@ public class DocumentService {
                 doc.getStorageFilename(),
                 doc.getStorageSizeBytes(),
                 doc.getStorageMimeType(),
-                doc.getOwner() != null ? doc.getOwner().getFullName() : null
+                doc.getOwner() != null ? doc.getOwner().getFullName() : null,
+                doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
+                doc.getFamily() != null ? doc.getFamily().getName() : null
         );
     }
 
@@ -420,7 +438,9 @@ public class DocumentService {
                 doc.getCategory(),
                 doc.getVisibility(),
                 doc.getExpiryDate(),
-                doc.getOwner() != null ? doc.getOwner().getFullName() : null
+                doc.getOwner() != null ? doc.getOwner().getFullName() : null,
+                doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
+                doc.getFamily() != null ? doc.getFamily().getName() : null
         );
     }
 
@@ -428,12 +448,23 @@ public class DocumentService {
         return email == null ? null : email.trim().toLowerCase();
     }
 
+    private Family requireFamilyMembership(UUID familyPublicId, User user) {
+        Family family = familyRepository.findByPublicId(familyPublicId)
+                .orElseThrow(() -> new BadRequestException("Family not found"));
+        boolean member = familyMemberRepository.findByFamilyIdAndUserIdAndActiveTrue(family.getId(), user.getId()).isPresent();
+        if (!member) {
+            throw new UnauthorizedException("Not a member of the selected family");
+        }
+        return family;
+    }
+
     public record DocumentCommand(
             String title,
             String category,
             DocumentVisibility visibility,
             LocalDate expiryDate,
-            List<String> shareWith
+            List<String> shareWith,
+            UUID familyId
     ) {
     }
 
@@ -444,7 +475,8 @@ public class DocumentService {
             LocalDate expiryFrom,
             LocalDate expiryTo,
             int page,
-            int size
+            int size,
+            UUID familyId
     ) {
     }
 }

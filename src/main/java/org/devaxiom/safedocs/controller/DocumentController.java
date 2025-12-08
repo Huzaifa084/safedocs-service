@@ -49,11 +49,19 @@ public class DocumentController {
             )
             @RequestParam("visibility") DocumentVisibility visibility,
             @RequestParam(value = "expiryDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryDate,
-            @RequestParam(value = "shareWith", required = false) List<String> shareWith) {
+            @RequestParam(value = "shareWith", required = false) List<String> shareWith,
+            @RequestParam(value = "familyId", required = false) String familyId) {
 
         User user = principleUserService.getCurrentUser().orElseThrow(()
                 -> new BadRequestException("Unauthorized"));
-        var cmd = new DocumentService.DocumentCommand(title, category, visibility, expiryDate, shareWith);
+        var cmd = new DocumentService.DocumentCommand(
+                title,
+                category,
+                visibility,
+                expiryDate,
+                shareWith,
+                familyId != null ? parseId(familyId) : null
+        );
         DocumentResponse resp = documentService.createDocument(cmd, file, user);
         return ResponseBuilder.success(resp, "Document created");
     }
@@ -68,7 +76,7 @@ public class DocumentController {
             @RequestParam(value = "shareWith", required = false) List<String> shareWith) {
 
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        var cmd = new DocumentService.DocumentCommand(title, category, null, expiryDate, shareWith);
+        var cmd = new DocumentService.DocumentCommand(title, category, null, expiryDate, shareWith, null);
         DocumentResponse resp = documentService.updateDocument(parseId(id), cmd, file, user);
         return ResponseBuilder.success(resp, "Document updated");
     }
@@ -88,7 +96,8 @@ public class DocumentController {
             @Parameter(description = "Filter to date (YYYY-MM-DD)", example = "2025-12-31")
             @RequestParam(value = "expiryTo", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryTo,
             @RequestParam(value = "page", defaultValue = "0") int page,
-            @RequestParam(value = "size", defaultValue = "20") int size) {
+            @RequestParam(value = "size", defaultValue = "20") int size,
+            @RequestParam(value = "familyId", required = false) String familyId) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
         DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
                 type,
@@ -97,7 +106,8 @@ public class DocumentController {
                 expiryFrom,
                 expiryTo,
                 page,
-                size
+                size,
+                familyId != null ? parseId(familyId) : null
         );
         DocumentPageResponse resp = documentService.listWithFilters(filter, user);
         return ResponseBuilder.success(resp, "Documents fetched");

@@ -19,6 +19,8 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     List<Document> findByFamilyIdAndStatus(Long familyId, DocumentStatus status, Sort sort);
 
+    List<Document> findByFamilyIdInAndStatus(List<Long> familyIds, DocumentStatus status, Sort sort);
+
     List<Document> findByOwnerIdAndStatus(Long ownerId, DocumentStatus status, Sort sort);
 
     List<Document> findByStatusAndExpiryDateBetween(DocumentStatus status, java.time.LocalDate from, java.time.LocalDate to);

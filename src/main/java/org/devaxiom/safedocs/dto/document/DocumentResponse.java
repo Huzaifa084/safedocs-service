@@ -15,6 +15,8 @@ public record DocumentResponse(
         String storageFilename,
         Long storageSizeBytes,
         String mimeType,
-        String ownerName
+        String ownerName,
+        UUID familyId,
+        String familyName
 ) {
 }

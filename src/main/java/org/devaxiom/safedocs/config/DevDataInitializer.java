@@ -3,6 +3,7 @@ package org.devaxiom.safedocs.config;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.devaxiom.safedocs.enums.AuthProviderType;
+import org.devaxiom.safedocs.dto.family.CreateFamilyRequest;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.devaxiom.safedocs.service.FamilyService;
@@ -60,7 +61,7 @@ public class DevDataInitializer implements ApplicationRunner {
             u.setEmail(resolvedEmail);
             u.setUsername(resolvedEmail);
             userRepository.save(u);
-            familyService.ensureFamilyForUser(u);
+            tryCreateDefaultFamily(u);
             log.info("Corrected placeholder dev user email to {}", resolvedEmail);
             return;
         }
@@ -77,7 +78,14 @@ public class DevDataInitializer implements ApplicationRunner {
                 .authProviderType(AuthProviderType.LOCAL)
                 .build();
         user = userRepository.save(user);
-        familyService.ensureFamilyForUser(user);
+        tryCreateDefaultFamily(user);
         log.info("Seeded dev user {}", user.getEmail());
+    }
+
+    private void tryCreateDefaultFamily(User user) {
+        try {
+            familyService.createFamily(user, new CreateFamilyRequest("Family of " + user.getFullName()));
+        } catch (Exception ignored) {
+        }
     }
 }

@@ -11,6 +11,8 @@ public record DocumentListItem(
         String category,
         DocumentVisibility visibility,
         LocalDate expiryDate,
-        String ownerName
+        String ownerName,
+        UUID familyId,
+        String familyName
 ) {
 }

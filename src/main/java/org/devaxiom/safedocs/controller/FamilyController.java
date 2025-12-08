@@ -4,19 +4,17 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.devaxiom.safedocs.dto.base.BaseResponseEntity;
 import org.devaxiom.safedocs.dto.base.ResponseBuilder;
+import org.devaxiom.safedocs.dto.family.CreateFamilyRequest;
 import org.devaxiom.safedocs.dto.family.FamilyMemberResponse;
+import org.devaxiom.safedocs.dto.family.FamilyProfileResponse;
+import org.devaxiom.safedocs.dto.family.FamilySummaryResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
+import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.service.FamilyService;
 import org.devaxiom.safedocs.service.PrincipleUserService;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.UUID;
@@ -29,39 +27,71 @@ public class FamilyController {
     private final FamilyService familyService;
     private final PrincipleUserService principleUserService;
 
-    @GetMapping("/members")
-    public BaseResponseEntity<List<FamilyMemberResponse>> members() {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        List<FamilyMemberResponse> members = familyService.listMembers(user);
-        return ResponseBuilder.success(members, "Family members fetched");
+    @GetMapping
+    public BaseResponseEntity<List<FamilySummaryResponse>> listFamilies() {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.listFamilies(user), "Families fetched");
     }
 
-    @PostMapping("/invite")
-    public BaseResponseEntity<FamilyMemberResponse> invite(@Valid @RequestBody InviteFamilyMemberRequest request) {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        FamilyMemberResponse member = familyService.invite(user, request);
-        return ResponseBuilder.success(member, "Member added to family");
+    @PostMapping
+    public BaseResponseEntity<FamilySummaryResponse> create(@Valid @RequestBody CreateFamilyRequest request) {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.createFamily(user, request), "Family created");
+    }
+
+    @GetMapping("/{familyId}")
+    public BaseResponseEntity<FamilyProfileResponse> profile(@PathVariable String familyId) {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.getFamilyProfile(parseUuid(familyId), user), "Family profile fetched");
+    }
+
+    @PutMapping("/{familyId}")
+    public BaseResponseEntity<FamilyProfileResponse> rename(@PathVariable String familyId,
+                                                            @Valid @RequestBody UpdateFamilyRequest request) {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.renameFamily(parseUuid(familyId), request, user), "Family renamed");
+    }
+
+    @GetMapping("/{familyId}/members")
+    public BaseResponseEntity<List<FamilyMemberResponse>> members(@PathVariable String familyId) {
+        User user = currentUser();
+        return ResponseBuilder.success(familyService.listMembers(parseUuid(familyId), user), "Family members fetched");
+    }
+
+    @PostMapping("/{familyId}/invite")
+    public BaseResponseEntity<FamilyMemberResponse> invite(@PathVariable String familyId,
+                                                           @Valid @RequestBody InviteFamilyMemberRequest request) {
+        User user = currentUser();
+        FamilyMemberResponse member = familyService.invite(user, parseUuid(familyId), request);
+        return ResponseBuilder.success(member, "Invite created");
     }
 
     @PostMapping("/invite/{inviteId}/accept")
     public BaseResponseEntity<FamilyMemberResponse> acceptInvite(@PathVariable("inviteId") String inviteId) {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        User user = currentUser();
         FamilyMemberResponse resp = familyService.acceptInvite(parseUuid(inviteId), user);
         return ResponseBuilder.success(resp, "Invite accepted");
     }
 
     @PostMapping("/invite/{inviteId}/reject")
     public BaseResponseEntity<?> rejectInvite(@PathVariable("inviteId") String inviteId) {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        User user = currentUser();
         familyService.rejectInvite(parseUuid(inviteId), user);
         return ResponseBuilder.success("Invite rejected");
     }
 
-    @DeleteMapping("/members/{userId}")
-    public BaseResponseEntity<?> removeMember(@PathVariable("userId") Long userId) {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        familyService.removeMember(user, userId);
+    @DeleteMapping("/{familyId}/members/{userId}")
+    public BaseResponseEntity<?> removeMember(@PathVariable String familyId, @PathVariable("userId") Long userId) {
+        User user = currentUser();
+        familyService.removeMember(user, parseUuid(familyId), userId);
         return ResponseBuilder.success("Member removed");
+    }
+
+    @PostMapping("/{familyId}/leave")
+    public BaseResponseEntity<?> leaveFamily(@PathVariable String familyId) {
+        User user = currentUser();
+        familyService.leaveFamily(user, parseUuid(familyId));
+        return ResponseBuilder.success("Left family");
     }
 
     private UUID parseUuid(String raw) {
@@ -70,5 +100,9 @@ public class FamilyController {
         } catch (IllegalArgumentException ex) {
             throw new BadRequestException("Invalid invite id");
         }
+    }
+
+    private User currentUser() {
+        return principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
     }
 }
