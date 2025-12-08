@@ -42,19 +42,35 @@ public class DocumentService {
 
     private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.ASC, "expiryDate", "title");
     private static final Set<String> ALLOWED_DOC_TYPES = Set.of(
+            // Images (common Android/iOS + web)
             "application/pdf",
             "image/jpeg",
             "image/png",
             "image/gif",
             "image/tiff",
+            "image/jpg",
+            "image/webp",
+            "image/bmp",
+            "image/svg+xml",
+            "image/heic",
+            "image/heif",
+            // Office docs
             "application/msword",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             "application/vnd.ms-excel",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            // Text / CSV
             "text/plain",
-            "text/csv"
+            "text/csv",
+            // Archives
+            "application/zip",
+            "application/x-7z-compressed",
+            "application/x-rar-compressed",
+            // Videos (most common)
+            "video/mp4",
+            "video/quicktime"
     );
 
     private final DocumentRepository documentRepository;
