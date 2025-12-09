@@ -307,6 +307,9 @@ public class FamilyService {
 
     private void sendInviteEmail(FamilyInvite invite) {
         String subject = "You’re invited to a SafeDocs family";
+        String inviterName = invite.getInvitedBy() != null && invite.getInvitedBy().getFullName() != null
+                ? invite.getInvitedBy().getFullName()
+                : "A SafeDocs user";
         String body = """
                 <html>
                 <body style="margin:0;padding:0;background:#f6f8fb;font-family:Arial,sans-serif;color:#111;">
@@ -346,7 +349,7 @@ public class FamilyService {
                   </table>
                 </body>
                 </html>
-                """.formatted(currentUser.getFullName() != null ? currentUser.getFullName() : "A SafeDocs user", invite.getPublicId());
+                """.formatted(inviterName, invite.getPublicId());
         try {
             emailService.sendEmail(invite.getEmail(), subject, body);
         } catch (Exception ignored) {

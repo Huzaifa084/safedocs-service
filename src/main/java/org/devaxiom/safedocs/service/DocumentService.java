@@ -97,6 +97,9 @@ public class DocumentService {
                 throw new BadRequestException("familyId is required for FAMILY documents");
             }
             Family family = requireFamilyMembership(cmd.familyId(), currentUser);
+            if (!isFamilyHead(family, currentUser)) {
+                throw new UnauthorizedException("Only the family head can upload family documents");
+            }
             doc.setFamily(family);
         } else {
             doc.setFamily(null);
@@ -456,6 +459,12 @@ public class DocumentService {
             throw new UnauthorizedException("Not a member of the selected family");
         }
         return family;
+    }
+
+    private boolean isFamilyHead(Family family, User user) {
+        return familyMemberRepository.findByFamilyIdAndRoleAndActiveTrue(family.getId(), FamilyRole.HEAD)
+                .stream()
+                .anyMatch(m -> Objects.equals(m.getUser().getId(), user.getId()));
     }
 
     public record DocumentCommand(
