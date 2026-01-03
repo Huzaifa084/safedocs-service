@@ -2,32 +2,37 @@ package org.devaxiom.safedocs.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.devaxiom.safedocs.dto.document.CreateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.DocumentListItem;
-import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentPageResponse;
+import org.devaxiom.safedocs.dto.document.DocumentReconcileRequest;
+import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
+import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
+import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
+import org.devaxiom.safedocs.enums.DocumentReferenceType;
 import org.devaxiom.safedocs.enums.DocumentShareStatus;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
+import org.devaxiom.safedocs.enums.PermissionJobAction;
+import org.devaxiom.safedocs.enums.StorageProvider;
 import org.devaxiom.safedocs.enums.FamilyRole;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.exception.ResourceNotFoundException;
 import org.devaxiom.safedocs.exception.UnauthorizedException;
-import org.devaxiom.safedocs.model.*;
+import org.devaxiom.safedocs.model.Document;
+import org.devaxiom.safedocs.model.DocumentShare;
+import org.devaxiom.safedocs.model.Family;
+import org.devaxiom.safedocs.model.FamilyMember;
+import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.repository.DocumentRepository;
 import org.devaxiom.safedocs.repository.DocumentShareRepository;
 import org.devaxiom.safedocs.repository.FamilyMemberRepository;
 import org.devaxiom.safedocs.repository.FamilyRepository;
 import org.devaxiom.safedocs.repository.UserRepository;
-import org.devaxiom.safedocs.storage.StorageContext;
-import org.devaxiom.safedocs.storage.StorageService;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -41,120 +46,85 @@ import java.util.UUID;
 @Slf4j
 public class DocumentService {
 
-    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.ASC, "expiryDate", "title");
-    private static final Set<String> ALLOWED_DOC_TYPES = Set.of(
-            // Images (common Android/iOS + web)
-            "application/pdf",
-            "image/jpeg",
-            "image/png",
-            "image/gif",
-            "image/tiff",
-            "image/jpg",
-            "image/webp",
-            "image/bmp",
-            "image/svg+xml",
-            "image/heic",
-            "image/heif",
-            // Office docs
-            "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "application/vnd.ms-powerpoint",
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "application/vnd.ms-excel",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            // Text / CSV
-            "text/plain",
-            "text/csv",
-            // Archives
-            "application/zip",
-            "application/x-7z-compressed",
-            "application/x-rar-compressed",
-            // Videos (most common)
-            "video/mp4",
-            "video/quicktime"
-    );
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.ASC, "title");
 
     private final DocumentRepository documentRepository;
     private final DocumentShareRepository documentShareRepository;
     private final FamilyMemberRepository familyMemberRepository;
     private final FamilyRepository familyRepository;
     private final UserRepository userRepository;
-    private final StorageService storageService;
+    private final PermissionJobService permissionJobService;
 
-    public DocumentResponse createDocument(DocumentCommand cmd, MultipartFile file, User currentUser) {
+    public DocumentResponse upsertDocument(CreateDocumentRequest request, User currentUser) {
         if (currentUser == null) throw new UnauthorizedException("Unauthorized");
-        if (file == null || file.isEmpty()) throw new BadRequestException("File is required");
-        validateCommand(cmd);
+        validateCreateRequest(request);
 
-        Document doc = new Document();
-        doc.setOwner(currentUser);
-        doc.setVisibility(cmd.visibility());
-        doc.setTitle(cmd.title());
-        doc.setCategory(cmd.category());
-        doc.setExpiryDate(cmd.expiryDate());
-        if (cmd.visibility() == DocumentVisibility.FAMILY) {
-            if (cmd.familyId() == null) {
-                throw new BadRequestException("familyId is required for FAMILY documents");
-            }
-            Family family = requireFamilyMembership(cmd.familyId(), currentUser);
-            if (!isFamilyHead(family, currentUser)) {
-                throw new UnauthorizedException("Only the family head can upload family documents");
-            }
-            doc.setFamily(family);
-        } else {
-            doc.setFamily(null);
+        String driveFileId = normalizeId(request.driveFileId());
+        Document doc = documentRepository.findByOwnerIdAndDriveFileId(currentUser.getId(), driveFileId)
+                .orElseGet(Document::new);
+        boolean isNew = doc.getId() == null;
+
+        DocumentVisibility oldVisibility = doc.getVisibility();
+        Family oldFamily = doc.getFamily();
+
+        if (isNew) {
+            doc.setOwner(currentUser);
+            doc.setPublicId(UUID.randomUUID());
         }
-        doc.setStatus(DocumentStatus.ACTIVE);
-        doc.setPublicId(UUID.randomUUID());
 
-        var upload = storageService.uploadFile(
-                StorageContext.DOCUMENTS,
-                doc.getPublicId().toString(),
-                file,
-                currentUser.getFullName(),
-                ALLOWED_DOC_TYPES
-        );
-        doc.setStorageKey(upload.key());
-        doc.setStorageFilename(upload.filename());
-        doc.setStorageMimeType(upload.mimeType());
-        doc.setStorageSizeBytes(upload.size());
+        doc.setDriveFileId(driveFileId);
+        doc.setFileName(trimOrNull(request.fileName()));
+        doc.setTitle(resolveTitle(request.title(), request.fileName()));
+        doc.setMimeType(trimOrNull(request.mimeType()));
+        doc.setSizeBytes(request.sizeBytes());
+        doc.setCategory(trimOrNull(request.category()));
+        doc.setDriveCreatedAt(request.driveCreatedAt());
+        doc.setDriveWebViewLink(trimOrNull(request.driveWebViewLink()));
+        doc.setDriveMd5(trimOrNull(request.driveMd5()));
+        doc.setStorageProvider(StorageProvider.DRIVE);
+        if (request.referenceType() != null) {
+            doc.setReferenceType(request.referenceType());
+        } else if (doc.getReferenceType() == null) {
+            doc.setReferenceType(DocumentReferenceType.FILE);
+        }
+        if (request.accessLevel() != null) {
+            doc.setAccessLevel(request.accessLevel());
+        }
+        if (doc.getStatus() == null || doc.getStatus() == DocumentStatus.DELETED_OR_REVOKED) {
+            doc.setStatus(DocumentStatus.ACTIVE);
+        }
+
+        Family newFamily = resolveFamilyForVisibility(request.visibility(), request.familyId(), currentUser, doc);
+        doc.setVisibility(request.visibility());
+        doc.setFamily(newFamily);
 
         doc = documentRepository.save(doc);
 
-        if (doc.getVisibility() == DocumentVisibility.SHARED && cmd.shareWith() != null && !cmd.shareWith().isEmpty()) {
-            addShares(doc, cmd.shareWith());
-        }
+        enqueueFamilyJobsOnVisibilityChange(doc, doc.getOwner(), oldVisibility, oldFamily, request.visibility(), newFamily);
 
         return toResponse(doc);
     }
 
-    public DocumentResponse updateDocument(UUID documentId, DocumentCommand cmd, MultipartFile file, User currentUser) {
+    public DocumentResponse updateDocument(UUID documentId, UpdateDocumentRequest request, User currentUser) {
         Document doc = getActiveDocument(documentId);
         assertCanModify(doc, currentUser);
+        enforceImmutableUpdates(request);
 
-        if (cmd.title() != null) doc.setTitle(cmd.title());
-        if (cmd.category() != null) doc.setCategory(cmd.category());
-        if (cmd.expiryDate() != null) doc.setExpiryDate(cmd.expiryDate());
+        if (request.title() != null) doc.setTitle(request.title());
+        if (request.category() != null) doc.setCategory(request.category());
 
-        if (file != null && !file.isEmpty()) {
-            var upload = storageService.uploadFile(
-                    StorageContext.DOCUMENTS,
-                    doc.getPublicId().toString(),
-                    file,
-                    currentUser.getFullName(),
-                    ALLOWED_DOC_TYPES
-            );
-            doc.setStorageKey(upload.key());
-            doc.setStorageFilename(upload.filename());
-            doc.setStorageMimeType(upload.mimeType());
-            doc.setStorageSizeBytes(upload.size());
-        }
+        DocumentVisibility newVisibility = request.visibility() != null ? request.visibility() : doc.getVisibility();
+        UUID newFamilyId = request.familyId();
+        DocumentVisibility oldVisibility = doc.getVisibility();
+        Family oldFamily = doc.getFamily();
+
+        Family newFamily = resolveFamilyForVisibility(newVisibility, newFamilyId, currentUser, doc);
+        doc.setVisibility(newVisibility);
+        doc.setFamily(newFamily);
 
         doc = documentRepository.save(doc);
 
-        if (doc.getVisibility() == DocumentVisibility.SHARED && cmd.shareWith() != null) {
-            addShares(doc, cmd.shareWith());
-        }
+        enqueueFamilyJobsOnVisibilityChange(doc, doc.getOwner(), oldVisibility, oldFamily, newVisibility, newFamily);
 
         return toResponse(doc);
     }
@@ -206,7 +176,7 @@ public class DocumentService {
     }
 
     public DocumentPageResponse listWithFilters(DocumentFilter filter, User user) {
-        if (filter.visibility == null) throw new BadRequestException("type is required");
+        if (filter.visibility == null) throw new BadRequestException("visibility is required");
         List<Document> base = switch (filter.visibility) {
             case PERSONAL -> documentRepository.findByOwnerIdAndVisibilityAndStatus(
                     user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
@@ -230,10 +200,8 @@ public class DocumentService {
                         .toList();
             }
             case SHARED -> {
-                // shared by me
                 List<Document> owned = documentRepository.findByOwnerIdAndVisibilityAndStatus(
                         user.getId(), DocumentVisibility.SHARED, DocumentStatus.ACTIVE, DEFAULT_SORT);
-                // shared with me
                 List<DocumentShare> shares = documentShareRepository.findByRecipientEmailAndStatus(
                         normalizeEmail(user.getEmail()), DocumentShareStatus.ACTIVE);
                 List<Document> withMe = shares.stream()
@@ -243,28 +211,13 @@ public class DocumentService {
                 Set<Document> combined = new HashSet<>();
                 combined.addAll(owned);
                 combined.addAll(withMe);
-                yield combined.stream().sorted((a, b) -> {
-                    LocalDate ea = a.getExpiryDate();
-                    LocalDate eb = b.getExpiryDate();
-                    if (ea == null && eb == null) return a.getTitle().compareToIgnoreCase(b.getTitle());
-                    if (ea == null) return 1;
-                    if (eb == null) return -1;
-                    return ea.compareTo(eb);
-                }).toList();
+                yield combined.stream().sorted((a, b) -> a.getTitle().compareToIgnoreCase(b.getTitle())).toList();
             }
         };
 
         List<Document> filtered = base.stream()
                 .filter(d -> filter.category == null || (d.getCategory() != null && d.getCategory().equalsIgnoreCase(filter.category)))
                 .filter(d -> filter.search == null || matchesSearch(d, filter.search))
-                .filter(d -> {
-                    if (filter.expiryFrom == null && filter.expiryTo == null) return true;
-                    LocalDate e = d.getExpiryDate();
-                    if (e == null) return false;
-                    boolean after = filter.expiryFrom == null || !e.isBefore(filter.expiryFrom);
-                    boolean before = filter.expiryTo == null || !e.isAfter(filter.expiryTo);
-                    return after && before;
-                })
                 .toList();
 
         int page = Math.max(0, filter.page);
@@ -281,7 +234,14 @@ public class DocumentService {
     public void deleteDocument(UUID documentId, User user) {
         Document doc = getActiveDocument(documentId);
         assertCanModify(doc, user);
-        doc.setStatus(DocumentStatus.DELETED);
+
+        if (doc.getVisibility() == DocumentVisibility.FAMILY) {
+            enqueueFamilyJobs(doc, doc.getOwner(), doc.getFamily(), PermissionJobAction.REVOKE);
+        } else if (doc.getVisibility() == DocumentVisibility.SHARED) {
+            enqueueShareJobs(doc, doc.getOwner(), PermissionJobAction.REVOKE);
+        }
+
+        doc.setStatus(DocumentStatus.DELETED_OR_REVOKED);
         documentRepository.save(doc);
     }
 
@@ -308,12 +268,37 @@ public class DocumentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Share entry not found"));
         share.setStatus(DocumentShareStatus.REVOKED);
         documentShareRepository.save(share);
+        permissionJobService.enqueueJob(doc, doc.getOwner(), share.getRecipientEmail(), PermissionJobAction.REVOKE, null);
     }
 
-    public ResponseEntity<InputStreamResource> download(UUID documentId, User user) {
-        Document doc = getActiveDocument(documentId);
-        assertCanView(doc, user);
-        return storageService.downloadFile(doc.getStorageKey());
+    public DocumentReconcileResponse reconcile(DocumentReconcileRequest request, User currentUser) {
+        int updated = 0;
+        for (DocumentReconcileRequest.MissingDocument missing : request.missing()) {
+            Document doc = resolveDocumentForReconcile(missing, currentUser);
+            if (doc != null && doc.getStatus() != DocumentStatus.DELETED_OR_REVOKED) {
+                doc.setStatus(DocumentStatus.DELETED_OR_REVOKED);
+                documentRepository.save(doc);
+                updated++;
+            }
+        }
+        return new DocumentReconcileResponse(updated);
+    }
+
+    private Document resolveDocumentForReconcile(DocumentReconcileRequest.MissingDocument missing, User currentUser) {
+        if (missing.publicId() != null) {
+            Document doc = documentRepository.findByPublicId(missing.publicId())
+                    .orElse(null);
+            if (doc == null) return null;
+            if (!Objects.equals(doc.getOwner().getId(), currentUser.getId())) {
+                throw new UnauthorizedException("Not allowed to reconcile this document");
+            }
+            return doc;
+        }
+        if (missing.driveFileId() != null && !missing.driveFileId().isBlank()) {
+            return documentRepository.findByOwnerIdAndDriveFileId(currentUser.getId(), missing.driveFileId().trim())
+                    .orElse(null);
+        }
+        throw new BadRequestException("Each missing item must include publicId or driveFileId");
     }
 
     private List<DocumentShareResponse> addShares(Document doc, List<String> emails) {
@@ -324,18 +309,28 @@ public class DocumentService {
         for (String emailRaw : emails) {
             if (emailRaw == null || emailRaw.isBlank()) continue;
             String email = normalizeEmail(emailRaw);
-            if (documentShareRepository.existsByDocumentIdAndRecipientEmailAndStatus(doc.getId(), email, DocumentShareStatus.ACTIVE)) {
+            if (email == null || email.isBlank()) continue;
+
+            Optional<DocumentShare> existing = documentShareRepository.findByDocumentIdAndRecipientEmailAndStatus(
+                    doc.getId(), email, DocumentShareStatus.ACTIVE);
+            if (existing.isPresent()) {
                 continue;
             }
-            DocumentShare share = new DocumentShare();
-            share.setDocument(doc);
-            share.setRecipientEmail(email);
+
+            DocumentShare share = documentShareRepository.findByDocumentIdAndRecipientEmailAndStatus(
+                    doc.getId(), email, DocumentShareStatus.REVOKED).orElse(null);
+            if (share == null) {
+                share = new DocumentShare();
+                share.setDocument(doc);
+                share.setRecipientEmail(email);
+            }
             share.setStatus(DocumentShareStatus.ACTIVE);
             share.setCanEdit(false);
             userRepository.findByEmail(email).ifPresent(share::setRecipientUser);
             share = documentShareRepository.save(share);
             created.add(new DocumentShareResponse(share.getId(), share.getRecipientEmail(),
                     Boolean.TRUE.equals(share.getCanEdit()), share.getStatus()));
+            permissionJobService.enqueueJob(doc, doc.getOwner(), email, PermissionJobAction.GRANT, null);
         }
         return created;
     }
@@ -405,25 +400,113 @@ public class DocumentService {
         }
     }
 
-    private void validateCommand(DocumentCommand cmd) {
-        if (cmd.title() == null || cmd.title().isBlank()) throw new BadRequestException("Title is required");
-        if (cmd.visibility() == null) throw new BadRequestException("Visibility is required");
+    private void validateCreateRequest(CreateDocumentRequest request) {
+        if (request.driveFileId() == null || request.driveFileId().isBlank()) {
+            throw new BadRequestException("driveFileId is required");
+        }
+        if (request.fileName() == null || request.fileName().isBlank()) {
+            throw new BadRequestException("fileName is required");
+        }
+        if (request.visibility() == null) throw new BadRequestException("visibility is required");
+    }
+
+    private void enforceImmutableUpdates(UpdateDocumentRequest request) {
+        if (request.driveFileId() != null
+                || request.fileName() != null
+                || request.referenceType() != null
+                || request.storageProvider() != null
+                || request.accessLevel() != null) {
+            throw new BadRequestException("Drive fields are immutable and can only be set during creation");
+        }
+    }
+
+    private void enqueueFamilyJobsOnVisibilityChange(
+            Document doc,
+            User owner,
+            DocumentVisibility oldVisibility,
+            Family oldFamily,
+            DocumentVisibility newVisibility,
+            Family newFamily
+    ) {
+        if (oldVisibility == DocumentVisibility.FAMILY && (newVisibility != DocumentVisibility.FAMILY || !sameFamily(oldFamily, newFamily))) {
+            enqueueFamilyJobs(doc, owner, oldFamily, PermissionJobAction.REVOKE);
+        }
+        if (newVisibility == DocumentVisibility.FAMILY && (oldVisibility != DocumentVisibility.FAMILY || !sameFamily(oldFamily, newFamily))) {
+            enqueueFamilyJobs(doc, owner, newFamily, PermissionJobAction.GRANT);
+        }
+    }
+
+    private boolean sameFamily(Family left, Family right) {
+        if (left == null && right == null) return true;
+        if (left == null || right == null) return false;
+        return Objects.equals(left.getId(), right.getId());
+    }
+
+    private void enqueueFamilyJobs(Document doc, User owner, Family family, PermissionJobAction action) {
+        if (family == null) return;
+        List<FamilyMember> members = familyMemberRepository.findByFamilyIdAndActiveTrue(family.getId());
+        for (FamilyMember member : members) {
+            if (member.getUser() == null || member.getUser().getEmail() == null) continue;
+            String email = normalizeEmail(member.getUser().getEmail());
+            if (email == null) continue;
+            if (owner.getEmail() != null && email.equalsIgnoreCase(owner.getEmail())) continue;
+            permissionJobService.enqueueJob(doc, owner, email, action, family);
+        }
+    }
+
+    private void enqueueShareJobs(Document doc, User owner, PermissionJobAction action) {
+        List<DocumentShare> shares = documentShareRepository.findByDocumentIdAndStatus(doc.getId(), DocumentShareStatus.ACTIVE);
+        for (DocumentShare share : shares) {
+            if (share.getRecipientEmail() == null) continue;
+            String email = normalizeEmail(share.getRecipientEmail());
+            if (email == null) continue;
+            if (owner.getEmail() != null && email.equalsIgnoreCase(owner.getEmail())) continue;
+            permissionJobService.enqueueJob(doc, owner, email, action, null);
+            if (action == PermissionJobAction.REVOKE) {
+                share.setStatus(DocumentShareStatus.REVOKED);
+                documentShareRepository.save(share);
+            }
+        }
+    }
+
+    private Family resolveFamilyForVisibility(DocumentVisibility visibility, UUID familyPublicId, User user, Document doc) {
+        if (visibility == null) {
+            throw new BadRequestException("visibility is required");
+        }
+        if (visibility == DocumentVisibility.FAMILY) {
+            if (familyPublicId == null) {
+                if (doc.getFamily() != null) {
+                    return doc.getFamily();
+                }
+                throw new BadRequestException("familyId is required for FAMILY documents");
+            }
+            return requireFamilyMembership(familyPublicId, user);
+        }
+        if (familyPublicId != null) {
+            throw new BadRequestException("familyId must be null unless visibility is FAMILY");
+        }
+        return null;
     }
 
     private DocumentResponse toResponse(Document doc) {
         return new DocumentResponse(
                 doc.getPublicId(),
+                doc.getDriveFileId(),
+                doc.getFileName(),
                 doc.getTitle(),
-                doc.getCategory(),
+                doc.getMimeType(),
+                doc.getSizeBytes(),
                 doc.getVisibility(),
-                doc.getExpiryDate(),
-                doc.getStorageKey(),
-                doc.getStorageFilename(),
-                doc.getStorageSizeBytes(),
-                doc.getStorageMimeType(),
-                doc.getOwner() != null ? doc.getOwner().getFullName() : null,
+                doc.getCategory(),
                 doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
-                doc.getFamily() != null ? doc.getFamily().getName() : null
+                doc.getReferenceType(),
+                doc.getStatus(),
+                doc.getDriveCreatedAt(),
+                doc.getDriveWebViewLink(),
+                doc.getDriveMd5(),
+                doc.getAccessLevel(),
+                doc.getCreatedDate().orElse(null),
+                doc.getLastModifiedDate().orElse(null)
         );
     }
 
@@ -431,24 +514,43 @@ public class DocumentService {
         if (search == null || search.isBlank()) return true;
         String term = search.trim().toLowerCase();
         return (doc.getTitle() != null && doc.getTitle().toLowerCase().contains(term))
-                || (doc.getCategory() != null && doc.getCategory().toLowerCase().contains(term));
+                || (doc.getCategory() != null && doc.getCategory().toLowerCase().contains(term))
+                || (doc.getFileName() != null && doc.getFileName().toLowerCase().contains(term));
     }
 
     private DocumentListItem toListItem(Document doc) {
         return new DocumentListItem(
                 doc.getPublicId(),
+                doc.getDriveFileId(),
+                doc.getFileName(),
                 doc.getTitle(),
-                doc.getCategory(),
+                doc.getMimeType(),
+                doc.getSizeBytes(),
                 doc.getVisibility(),
-                doc.getExpiryDate(),
-                doc.getOwner() != null ? doc.getOwner().getFullName() : null,
+                doc.getCategory(),
                 doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
-                doc.getFamily() != null ? doc.getFamily().getName() : null
+                doc.getReferenceType(),
+                doc.getStatus()
         );
     }
 
     private String normalizeEmail(String email) {
         return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private String normalizeId(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private String trimOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    private String resolveTitle(String title, String fileName) {
+        if (title != null && !title.isBlank()) return title.trim();
+        return fileName != null ? fileName.trim() : "";
     }
 
     private Family requireFamilyMembership(UUID familyPublicId, User user) {
@@ -461,28 +563,10 @@ public class DocumentService {
         return family;
     }
 
-    private boolean isFamilyHead(Family family, User user) {
-        return familyMemberRepository.findByFamilyIdAndRoleAndActiveTrue(family.getId(), FamilyRole.HEAD)
-                .stream()
-                .anyMatch(m -> Objects.equals(m.getUser().getId(), user.getId()));
-    }
-
-    public record DocumentCommand(
-            String title,
-            String category,
-            DocumentVisibility visibility,
-            LocalDate expiryDate,
-            List<String> shareWith,
-            UUID familyId
-    ) {
-    }
-
     public record DocumentFilter(
             DocumentVisibility visibility,
             String category,
             String search,
-            LocalDate expiryFrom,
-            LocalDate expiryTo,
             int page,
             int size,
             UUID familyId
