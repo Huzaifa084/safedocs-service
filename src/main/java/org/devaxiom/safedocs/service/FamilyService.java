@@ -9,8 +9,10 @@ import org.devaxiom.safedocs.dto.family.FamilyInviteResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
 import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
 import org.devaxiom.safedocs.enums.DocumentStatus;
+import org.devaxiom.safedocs.enums.DocumentVisibility;
 import org.devaxiom.safedocs.enums.FamilyInviteStatus;
 import org.devaxiom.safedocs.enums.FamilyRole;
+import org.devaxiom.safedocs.enums.PermissionJobAction;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.exception.ResourceNotFoundException;
 import org.devaxiom.safedocs.model.Document;
@@ -43,6 +45,7 @@ public class FamilyService {
     private final UserRepository userRepository;
     private final FamilyInviteRepository familyInviteRepository;
     private final DocumentRepository documentRepository;
+    private final PermissionJobService permissionJobService;
     private final EmailService emailService;
 
     @Transactional(readOnly = true)
@@ -166,6 +169,10 @@ public class FamilyService {
         }
         invite.setStatus(FamilyInviteStatus.ACCEPTED);
         familyInviteRepository.save(invite);
+
+        // Enqueue GRANT jobs for all FAMILY documents in this family
+        enqueueJobsForFamilyDocs(family, normalizeEmail(currentUser.getEmail()), PermissionJobAction.GRANT);
+
         return toResponse(currentUser, FamilyRole.MEMBER, true);
     }
 
@@ -208,6 +215,10 @@ public class FamilyService {
         }
         FamilyMember member = familyMemberRepository.findByFamilyIdAndUserIdAndActiveTrue(headMembership.getFamily().getId(), memberUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+
+        // Enqueue REVOKE jobs for all FAMILY documents for this removed member
+        enqueueJobsForFamilyDocs(headMembership.getFamily(), normalizeEmail(member.getUser().getEmail()), PermissionJobAction.REVOKE);
+
         member.setActive(false);
         familyMemberRepository.save(member);
     }
@@ -222,6 +233,10 @@ public class FamilyService {
         if (isHead && activeMembers.stream().anyMatch(m -> !Objects.equals(m.getUser().getId(), currentUser.getId()))) {
             throw new BadRequestException("Head must transfer role or remove members before leaving");
         }
+
+        // Enqueue REVOKE jobs for all FAMILY documents for this leaving member
+        enqueueJobsForFamilyDocs(family, normalizeEmail(currentUser.getEmail()), PermissionJobAction.REVOKE);
+
         membership.setActive(false);
         familyMemberRepository.save(membership);
     }
@@ -230,6 +245,9 @@ public class FamilyService {
     public void deleteFamily(User currentUser, UUID familyPublicId) {
         FamilyMember headMembership = requireMembershipWithRole(familyPublicId, currentUser, FamilyRole.HEAD);
         Family family = headMembership.getFamily();
+
+        // Snapshot active members before deletion (used to enqueue REVOKE jobs)
+        List<FamilyMember> activeMembers = familyMemberRepository.findByFamilyIdAndActiveTrue(family.getId());
 
         // remove members (all states)
         List<FamilyMember> members = familyMemberRepository.findByFamilyId(family.getId());
@@ -241,11 +259,23 @@ public class FamilyService {
         familyInviteRepository.deleteAll(invites);
         familyInviteRepository.flush();
 
-        // retire all family documents (any status) and detach FK
+        // Revoke access for all family members across all FAMILY docs
         List<Document> docs = documentRepository.findByFamilyId(family.getId());
+        for (Document d : docs) {
+            if (d.getVisibility() != DocumentVisibility.FAMILY) continue;
+            if (d.getStatus() != DocumentStatus.ACTIVE) continue;
+            for (FamilyMember member : activeMembers) {
+                if (member.getUser() == null) continue;
+                String email = normalizeEmail(member.getUser().getEmail());
+                if (email == null) continue;
+                permissionJobService.enqueueJob(d, d.getOwner(), email, PermissionJobAction.REVOKE, family);
+            }
+        }
+
+        // Convert family docs back to PERSONAL ownership and detach FK
         docs.forEach(d -> {
-            if (d.getStatus() == DocumentStatus.ACTIVE) {
-                d.setStatus(DocumentStatus.DELETED);
+            if (d.getVisibility() == DocumentVisibility.FAMILY) {
+                d.setVisibility(DocumentVisibility.PERSONAL);
             }
             d.setFamily(null);
         });
@@ -253,6 +283,18 @@ public class FamilyService {
         documentRepository.flush();
 
         familyRepository.delete(family);
+    }
+
+    private void enqueueJobsForFamilyDocs(Family family, String targetEmail, PermissionJobAction action) {
+        if (family == null) return;
+        if (targetEmail == null || targetEmail.isBlank()) return;
+        List<Document> docs = documentRepository.findByFamilyId(family.getId());
+        for (Document doc : docs) {
+            if (doc.getVisibility() != DocumentVisibility.FAMILY) continue;
+            if (doc.getStatus() != DocumentStatus.ACTIVE) continue;
+            if (doc.getOwner() == null) continue;
+            permissionJobService.enqueueJob(doc, doc.getOwner(), targetEmail, action, family);
+        }
     }
 
     private Family requireMembership(UUID familyPublicId, User user) {

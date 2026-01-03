@@ -21,7 +21,7 @@ restart() {
 }
 
 reset_db() {
-  echo "==> WARNING: resetting DB and MinIO volumes"
+  echo "==> WARNING: resetting DB volumes"
   docker compose down -v
   docker compose up -d --build
 }

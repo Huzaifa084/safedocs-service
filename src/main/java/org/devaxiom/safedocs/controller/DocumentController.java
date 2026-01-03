@@ -3,25 +3,24 @@ package org.devaxiom.safedocs.controller;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.devaxiom.safedocs.dto.base.BaseResponseEntity;
+import org.devaxiom.safedocs.dto.base.BaseResponse;
 import org.devaxiom.safedocs.dto.base.ResponseBuilder;
 import org.devaxiom.safedocs.dto.document.AddShareRequest;
+import org.devaxiom.safedocs.dto.document.CreateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
 import org.devaxiom.safedocs.dto.document.DocumentPageResponse;
 import org.devaxiom.safedocs.dto.document.DocumentListItem;
+import org.devaxiom.safedocs.dto.document.DocumentReconcileRequest;
+import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
+import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.service.DocumentService;
 import org.devaxiom.safedocs.service.PrincipleUserService;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.time.LocalDate;
 
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -37,47 +36,23 @@ public class DocumentController {
     private final DocumentService documentService;
     private final PrincipleUserService principleUserService;
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public BaseResponseEntity<DocumentResponse> createDocument(
-            @RequestParam("file") MultipartFile file,
-            @RequestParam("title") String title,
-            @RequestParam(value = "category", required = false) String category,
-            @Parameter(
-                    description = "Document visibility",
-                    schema = @Schema(implementation = DocumentVisibility.class),
-                    example = "PERSONAL"
-            )
-            @RequestParam("visibility") DocumentVisibility visibility,
-            @RequestParam(value = "expiryDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryDate,
-            @RequestParam(value = "shareWith", required = false) List<String> shareWith,
-            @RequestParam(value = "familyId", required = false) String familyId) {
-
+        @PostMapping
+        public BaseResponseEntity<DocumentResponse> createOrUpsertDocument(
+            @Valid @RequestBody CreateDocumentRequest request
+        ) {
         User user = principleUserService.getCurrentUser().orElseThrow(()
-                -> new BadRequestException("Unauthorized"));
-        var cmd = new DocumentService.DocumentCommand(
-                title,
-                category,
-                visibility,
-                expiryDate,
-                shareWith,
-                familyId != null ? parseId(familyId) : null
-        );
-        DocumentResponse resp = documentService.createDocument(cmd, file, user);
-        return ResponseBuilder.success(resp, "Document created");
-    }
+            -> new BadRequestException("Unauthorized"));
+        DocumentResponse resp = documentService.upsertDocument(request, user);
+        return ResponseBuilder.success(resp, "Document saved");
+        }
 
-    @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PutMapping(value = "/{id}")
     public BaseResponseEntity<DocumentResponse> updateDocument(
             @PathVariable("id") String id,
-            @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestParam(value = "title", required = false) String title,
-            @RequestParam(value = "category", required = false) String category,
-            @RequestParam(value = "expiryDate", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryDate,
-            @RequestParam(value = "shareWith", required = false) List<String> shareWith) {
-
+            @Valid @RequestBody UpdateDocumentRequest request
+    ) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        var cmd = new DocumentService.DocumentCommand(title, category, null, expiryDate, shareWith, null);
-        DocumentResponse resp = documentService.updateDocument(parseId(id), cmd, file, user);
+        DocumentResponse resp = documentService.updateDocument(parseId(id), request, user);
         return ResponseBuilder.success(resp, "Document updated");
     }
 
@@ -88,23 +63,21 @@ public class DocumentController {
                     schema = @Schema(implementation = DocumentVisibility.class),
                     example = "SHARED"
             )
-            @RequestParam("type") DocumentVisibility type,
+            @RequestParam("visibility") DocumentVisibility visibility,
+            @RequestParam(value = "type", required = false) String type,
             @RequestParam(value = "category", required = false) String category,
             @RequestParam(value = "search", required = false) String search,
-            @Parameter(description = "Filter from date (YYYY-MM-DD)", example = "2025-12-06")
-            @RequestParam(value = "expiryFrom", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryFrom,
-            @Parameter(description = "Filter to date (YYYY-MM-DD)", example = "2025-12-31")
-            @RequestParam(value = "expiryTo", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate expiryTo,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size,
             @RequestParam(value = "familyId", required = false) String familyId) {
         User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        if (type != null) {
+            throw new BadRequestException("Use visibility= instead of type=");
+        }
         DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
-                type,
+            visibility,
                 category,
                 search,
-                expiryFrom,
-                expiryTo,
                 page,
                 size,
                 familyId != null ? parseId(familyId) : null
@@ -137,6 +110,15 @@ public class DocumentController {
         return ResponseBuilder.success("Document deleted");
     }
 
+    @PostMapping("/reconcile")
+    public BaseResponseEntity<DocumentReconcileResponse> reconcile(
+            @Valid @RequestBody DocumentReconcileRequest request
+    ) {
+        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
+        DocumentReconcileResponse resp = documentService.reconcile(request, user);
+        return ResponseBuilder.success(resp, "Reconciled");
+    }
+
     @PostMapping("/{id}/share")
     public BaseResponseEntity<List<DocumentShareResponse>> addShare(
             @PathVariable("id") String id,
@@ -164,12 +146,15 @@ public class DocumentController {
     }
 
     @GetMapping("/{id}/download")
-    public ResponseEntity<InputStreamResource> download(@PathVariable("id") String id) {
-        User user = principleUserService.getCurrentUser().orElseThrow(() -> new BadRequestException("Unauthorized"));
-        return documentService.download(parseId(id), user);
+    public BaseResponseEntity<Void> download(@PathVariable("id") String id) {
+        BaseResponse<Void> body = BaseResponse.<Void>builder()
+                .success(false)
+                .message("Stored in Google Drive. Use Drive API.")
+                .build();
+        return new BaseResponseEntity<>(body, HttpStatus.GONE);
     }
 
-    // Enum request parameters for visibility and type are handled by Spring automatically
+    // Enum request parameters for visibility are handled by Spring automatically
 
     private UUID parseId(String raw) {
         try {

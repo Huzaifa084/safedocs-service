@@ -2,11 +2,14 @@ package org.devaxiom.safedocs.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.devaxiom.safedocs.enums.DocumentAccessLevel;
+import org.devaxiom.safedocs.enums.DocumentReferenceType;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
+import org.devaxiom.safedocs.enums.StorageProvider;
 import org.hibernate.annotations.DynamicUpdate;
 
-import java.time.LocalDate;
+import java.time.Instant;
 import java.util.UUID;
 
 @Getter
@@ -15,12 +18,18 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "document",
-        indexes = {
-                @Index(name = "idx_document_public_id", columnList = "public_id", unique = true),
-                @Index(name = "idx_document_owner_visibility", columnList = "owner_id, visibility"),
-                @Index(name = "idx_document_family", columnList = "family_id")
-        })
+@Table(
+    name = "document",
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_document_owner_drive_file", columnNames = {"owner_id", "drive_file_id"})
+    },
+    indexes = {
+        @Index(name = "idx_document_public_id", columnList = "public_id", unique = true),
+        @Index(name = "idx_document_owner_status", columnList = "owner_id, status"),
+        @Index(name = "idx_document_visibility_status", columnList = "visibility, status"),
+        @Index(name = "idx_document_family_visibility", columnList = "family_id, visibility")
+    }
+)
 @DynamicUpdate
 public class Document extends AbstractAuditable<Long> {
 
@@ -45,36 +54,74 @@ public class Document extends AbstractAuditable<Long> {
     @Column(name = "category", length = 100)
     private String category;
 
-    @Column(name = "expiry_date")
-    private LocalDate expiryDate;
-
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private DocumentStatus status;
 
-    @Column(name = "storage_key", nullable = false, length = 300)
-    private String storageKey;
+    @Column(name = "drive_file_id", nullable = false, length = 200)
+    private String driveFileId;
 
-    @Column(name = "storage_filename", length = 200)
-    private String storageFilename;
+    @Column(name = "file_name", nullable = false, length = 200)
+    private String fileName;
 
-    @Column(name = "storage_mime_type", length = 100)
-    private String storageMimeType;
+    @Column(name = "mime_type", length = 150)
+    private String mimeType;
 
-    @Column(name = "storage_size_bytes")
-    private Long storageSizeBytes;
+    @Column(name = "size_bytes")
+    private Long sizeBytes;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "storage_provider", nullable = false, length = 20)
+    private StorageProvider storageProvider;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reference_type", nullable = false, length = 20)
+    private DocumentReferenceType referenceType;
+
+    @Column(name = "drive_created_at")
+    private Instant driveCreatedAt;
+
+    @Column(name = "drive_web_view_link", length = 500)
+    private String driveWebViewLink;
+
+    @Column(name = "drive_md5", length = 100)
+    private String driveMd5;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "access_level", length = 20)
+    private DocumentAccessLevel accessLevel;
 
     @PrePersist
     void initDefaults() {
         if (publicId == null) publicId = UUID.randomUUID();
         if (status == null) status = DocumentStatus.ACTIVE;
+        if (storageProvider == null) storageProvider = StorageProvider.DRIVE;
+        if (referenceType == null) referenceType = DocumentReferenceType.FILE;
+
+        if (driveFileId != null) driveFileId = driveFileId.trim();
+        if (fileName != null) fileName = fileName.trim();
+        if (mimeType != null) mimeType = mimeType.trim();
+        if (driveWebViewLink != null) driveWebViewLink = driveWebViewLink.trim();
+        if (driveMd5 != null) driveMd5 = driveMd5.trim();
         if (title != null) title = title.trim();
         if (category != null) category = category.trim();
+
+        if ((title == null || title.isBlank()) && fileName != null) {
+            title = fileName;
+        }
     }
 
     @PreUpdate
     void onUpdate() {
+        if (driveFileId != null) driveFileId = driveFileId.trim();
+        if (fileName != null) fileName = fileName.trim();
+        if (mimeType != null) mimeType = mimeType.trim();
+        if (driveWebViewLink != null) driveWebViewLink = driveWebViewLink.trim();
+        if (driveMd5 != null) driveMd5 = driveMd5.trim();
         if (title != null) title = title.trim();
         if (category != null) category = category.trim();
+        if ((title == null || title.isBlank()) && fileName != null) {
+            title = fileName;
+        }
     }
 }
