@@ -159,7 +159,12 @@ public class JwtService {
     }
 
     private void validateSecretKey() {
-        byte[] keyBytes = jwtConfig.getSecret().getBytes(StandardCharsets.UTF_8);
+        String secret = jwtConfig.getSecret();
+        if (secret == null || secret.isBlank()) {
+            throw new InvalidStateException("JWT secret is not configured (jwt.secret)");
+        }
+
+        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
         if (keyBytes.length < jwtConfig.getMinSecretKeyLength()) {
             throw new InvalidStateException(
                     "JWT secret key must be at least 512 bits (64 characters). Current length: " +
