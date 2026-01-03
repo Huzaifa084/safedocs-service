@@ -37,16 +37,23 @@ public class JwtFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response, @NonNull FilterChain filterChain)
             throws ServletException, IOException {
-        log.info("➡️ {}", request.getRequestURI());
+        String uri = request.getRequestURI();
+        log.info("JwtFilter: request {}", uri);
 
+        String headerAuth = request.getHeader("Authorization");
+        boolean hasBearer = StringUtils.hasText(headerAuth) && headerAuth.startsWith("Bearer ");
         String token = parseJwt(request);
+        boolean isDocumentsApi = uri != null && uri.startsWith("/api/documents");
+        if (isDocumentsApi) {
+            log.info("JwtFilter: documents request auth header present={}, tokenPresent={}", hasBearer, token != null);
+        }
 
-        if (isPublicEndpoint(request.getRequestURI())) {
-            log.info("JwtFilter: Open endpoint, skipping authentication for {}", request.getRequestURI());
+        if (isPublicEndpoint(uri)) {
+            log.info("JwtFilter: Open endpoint, skipping authentication for {}", uri);
             filterChain.doFilter(request, response);
             return;
         } else if (token == null) {
-            log.warn("JwtFilter: No JWT token found in request headers for {}", request.getRequestURI());
+            log.warn("JwtFilter: No JWT token found in request headers for {}", uri);
             authEntryPoint.handleJwtException(response, new UnauthorizedException("No JWT token provided"));
             return;
 
@@ -61,6 +68,14 @@ public class JwtFilter extends OncePerRequestFilter {
             log.info("Spring Security Authorities for '{}': {}", auth.getName(), authoritySnapshot);
 
             log.info("JwtFilter: Authentication set in SecurityContext for user: {}", auth.getName());
+            if (isDocumentsApi) {
+                Object principal = auth.getPrincipal();
+                if (principal instanceof UserDetailsImpl details) {
+                    log.info("JwtFilter: documents auth userId={}, email={}", details.getId(), details.getEmail());
+                } else {
+                    log.info("JwtFilter: documents auth principal={}", principal != null ? principal.getClass().getSimpleName() : "null");
+                }
+            }
         } catch (JwtException | UnauthorizedException | TokenExpiredException | UserNotFoundException |
                  InvalidTokenException ex) {
             log.warn("Authentication failed: {}", ex.getMessage());
