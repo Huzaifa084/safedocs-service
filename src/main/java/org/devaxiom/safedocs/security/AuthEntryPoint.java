@@ -68,7 +68,7 @@ public class AuthEntryPoint implements AuthenticationEntryPoint {
                 ex
         );
 
-        response.setStatus(entity.getStatusCode().value());
+        response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         objectMapper.writeValue(response.getWriter(), entity.getBody());
     }
