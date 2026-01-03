@@ -1,18 +1,22 @@
 package org.devaxiom.safedocs.dto.document;
 
+import org.devaxiom.safedocs.enums.DocumentReferenceType;
+import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 
-import java.time.LocalDate;
 import java.util.UUID;
 
 public record DocumentListItem(
-        UUID id,
+        UUID publicId,
+        String driveFileId,
+        String fileName,
         String title,
-        String category,
+        String mimeType,
+        Long sizeBytes,
         DocumentVisibility visibility,
-        LocalDate expiryDate,
-        String ownerName,
+        String category,
         UUID familyId,
-        String familyName
+        DocumentReferenceType referenceType,
+        DocumentStatus status
 ) {
 }

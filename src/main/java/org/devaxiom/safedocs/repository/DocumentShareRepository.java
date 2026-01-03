@@ -13,6 +13,8 @@ import java.util.Optional;
 public interface DocumentShareRepository extends JpaRepository<DocumentShare, Long> {
     Optional<DocumentShare> findByIdAndDocumentId(Long id, Long documentId);
 
+    Optional<DocumentShare> findByDocumentIdAndRecipientEmailAndStatus(Long documentId, String recipientEmail, DocumentShareStatus status);
+
     boolean existsByDocumentIdAndRecipientEmailAndStatus(Long documentId, String recipientEmail, DocumentShareStatus status);
 
     List<DocumentShare> findByDocumentIdAndStatus(Long documentId, DocumentShareStatus status);

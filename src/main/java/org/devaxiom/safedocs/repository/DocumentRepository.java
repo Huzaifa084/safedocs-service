@@ -17,6 +17,8 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     List<Document> findByOwnerIdAndVisibilityAndStatus(Long ownerId, DocumentVisibility visibility, DocumentStatus status, Sort sort);
 
+    Optional<Document> findByOwnerIdAndDriveFileId(Long ownerId, String driveFileId);
+
     List<Document> findByFamilyIdAndStatus(Long familyId, DocumentStatus status, Sort sort);
 
     List<Document> findByFamilyIdInAndStatus(List<Long> familyIds, DocumentStatus status, Sort sort);
@@ -24,6 +26,4 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByFamilyId(Long familyId);
 
     List<Document> findByOwnerIdAndStatus(Long ownerId, DocumentStatus status, Sort sort);
-
-    List<Document> findByStatusAndExpiryDateBetween(DocumentStatus status, java.time.LocalDate from, java.time.LocalDate to);
 }

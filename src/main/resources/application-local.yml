@@ -67,23 +67,6 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
 
-# Added storage configuration
-storage:
-  provider: s3
-  max-bytes: 10485760
-  allowed-content-types:
-    - image/png
-    - image/jpeg
-    - application/pdf
-  s3:
-    bucket: safedocs
-    region: us-east-1
-    endpoint: "http://localhost:19000"
-    path-style: true
-    access-key: admin
-    secret-key: "AdminPW!"
-    auto-create-bucket: true
-
 dev:
   login:
     enabled: ${DEV_LOGIN_ENABLED:true}

@@ -1,22 +1,31 @@
 package org.devaxiom.safedocs.dto.document;
 
+import org.devaxiom.safedocs.enums.DocumentAccessLevel;
+import org.devaxiom.safedocs.enums.DocumentReferenceType;
+import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 
-import java.time.LocalDate;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 public record DocumentResponse(
-        UUID id,
+        UUID publicId,
+        String driveFileId,
+        String fileName,
         String title,
-        String category,
-        DocumentVisibility visibility,
-        LocalDate expiryDate,
-        String storageKey,
-        String storageFilename,
-        Long storageSizeBytes,
         String mimeType,
-        String ownerName,
+        Long sizeBytes,
+        DocumentVisibility visibility,
+        String category,
         UUID familyId,
-        String familyName
+        DocumentReferenceType referenceType,
+        DocumentStatus status,
+        Instant driveCreatedAt,
+        String driveWebViewLink,
+        String driveMd5,
+        DocumentAccessLevel accessLevel,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
 ) {
 }
