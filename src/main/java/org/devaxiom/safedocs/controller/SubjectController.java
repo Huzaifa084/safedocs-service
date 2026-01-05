@@ -7,6 +7,7 @@ import org.devaxiom.safedocs.dto.base.ResponseBuilder;
 import org.devaxiom.safedocs.dto.subject.CreateSubjectRequest;
 import org.devaxiom.safedocs.dto.subject.SubjectListItem;
 import org.devaxiom.safedocs.dto.subject.SubjectPageResponse;
+import org.devaxiom.safedocs.dto.subject.UpdateSubjectMetadataRequest;
 import org.devaxiom.safedocs.dto.subject.UpdateSubjectRequest;
 import org.devaxiom.safedocs.enums.SubjectScope;
 import org.devaxiom.safedocs.exception.BadRequestException;
@@ -15,6 +16,7 @@ import org.devaxiom.safedocs.service.PrincipleUserService;
 import org.devaxiom.safedocs.service.SubjectService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -60,6 +62,16 @@ public class SubjectController {
     ) {
         User user = requireUser();
         SubjectListItem resp = subjectService.rename(user, parseUuid(subjectId, "subjectId"), request);
+        return ResponseBuilder.success(resp, "Subject updated");
+    }
+
+    @PatchMapping("/{subjectId}/metadata")
+    public BaseResponseEntity<SubjectListItem> updateMetadata(
+            @PathVariable("subjectId") String subjectId,
+            @RequestBody UpdateSubjectMetadataRequest request
+    ) {
+        User user = requireUser();
+        SubjectListItem resp = subjectService.updateMetadata(user, parseUuid(subjectId, "subjectId"), request);
         return ResponseBuilder.success(resp, "Subject updated");
     }
 

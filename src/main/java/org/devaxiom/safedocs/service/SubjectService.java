@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.devaxiom.safedocs.dto.subject.CreateSubjectRequest;
 import org.devaxiom.safedocs.dto.subject.SubjectListItem;
 import org.devaxiom.safedocs.dto.subject.SubjectPageResponse;
+import org.devaxiom.safedocs.dto.subject.UpdateSubjectMetadataRequest;
 import org.devaxiom.safedocs.dto.subject.UpdateSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
@@ -14,6 +15,7 @@ import org.devaxiom.safedocs.exception.ForbiddenException;
 import org.devaxiom.safedocs.exception.ResourceAlreadyExistsException;
 import org.devaxiom.safedocs.exception.ResourceNotFoundException;
 import org.devaxiom.safedocs.model.Family;
+import org.devaxiom.safedocs.model.Document;
 import org.devaxiom.safedocs.model.Subject;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.repository.DocumentRepository;
@@ -27,6 +29,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -82,6 +85,7 @@ public class SubjectService {
 
         Subject subject = new Subject();
         subject.setName(name);
+        subject.setSemesterLabel(trimOrNull(req.semesterLabel()));
         subject.setScope(req.scope());
 
         if (req.scope() == SubjectScope.PERSONAL) {
@@ -101,6 +105,26 @@ public class SubjectService {
 
         subject = subjectRepository.save(subject);
         return toListItem(subject, user);
+    }
+
+    @Transactional
+    public SubjectListItem updateMetadata(User user, UUID subjectId, UpdateSubjectMetadataRequest req) {
+        Subject subject = subjectRepository.findById(subjectId)
+                .orElseThrow(() -> new ResourceNotFoundException("Subject not found"));
+
+        assertCanEditSubjectMetadata(subject, user);
+
+        if (req == null) throw new BadRequestException("Request is required");
+        subject.setSemesterLabel(trimOrNull(req.semesterLabel()));
+        subject = subjectRepository.save(subject);
+        return toListItem(subject, user);
+    }
+
+    @Transactional
+    public void touchDocumentActivity(Subject subject) {
+        if (subject == null) return;
+        subject.setLastDocumentActivityAt(LocalDateTime.now());
+        subjectRepository.save(subject);
     }
 
     @Transactional
@@ -132,8 +156,13 @@ public class SubjectService {
 
         assertCanManageSubject(subject, user);
 
-        if (documentRepository.existsBySubject_Id(subjectId)) {
-            throw new ResourceAlreadyExistsException("Cannot delete subject with documents. Move documents out first.");
+        List<Document> docs = documentRepository.findBySubject_Id(subjectId);
+        if (!docs.isEmpty()) {
+            touchDocumentActivity(subject);
+            for (Document doc : docs) {
+                doc.setSubject(null);
+            }
+            documentRepository.saveAll(docs);
         }
 
         subjectRepository.delete(subject);
@@ -194,12 +223,14 @@ public class SubjectService {
         return new SubjectListItem(
                 subject.getId(),
                 subject.getName(),
+            subject.getSemesterLabel(),
                 subject.getScope(),
                 subject.getFamily() != null ? subject.getFamily().getPublicId() : null,
                 subject.getOwner() != null ? subject.getOwner().getId() : null,
                 documentCount,
                 subject.getCreatedAt(),
-                subject.getUpdatedAt()
+            subject.getUpdatedAt(),
+            subject.getLastDocumentActivityAt()
         );
     }
 
@@ -244,6 +275,36 @@ public class SubjectService {
             throw new BadRequestException("Subject family is missing");
         }
         requireFamilyHead(subject.getFamily().getPublicId(), user);
+    }
+
+    private void assertCanEditSubjectMetadata(Subject subject, User user) {
+        if (subject.getScope() == SubjectScope.PERSONAL) {
+            if (subject.getOwner() == null || subject.getOwner().getId() == null) {
+                throw new BadRequestException("Subject owner is missing");
+            }
+            if (!subject.getOwner().getId().equals(user.getId())) {
+                throw new ForbiddenException("Not allowed to edit this subject");
+            }
+            return;
+        }
+
+        if (subject.getFamily() == null || subject.getFamily().getId() == null) {
+            throw new BadRequestException("Subject family is missing");
+        }
+        boolean canEdit = familyMemberRepository.existsByFamilyIdAndUserIdAndActiveTrueAndRoleIn(
+                subject.getFamily().getId(),
+                user.getId(),
+                List.of(FamilyRole.HEAD, FamilyRole.CONTRIBUTOR)
+        );
+        if (!canEdit) {
+            throw new ForbiddenException("Only family head/contributor can edit subject metadata");
+        }
+    }
+
+    private String trimOrNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
     }
 
     private void ensureUniquePersonal(Long ownerId, String name, UUID excludeId) {

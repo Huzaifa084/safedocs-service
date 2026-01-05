@@ -51,6 +51,9 @@ public class Subject {
     @Column(name = "name", nullable = false, length = 80)
     private String name;
 
+    @Column(name = "semester_label", length = 80)
+    private String semesterLabel;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "scope", nullable = false, length = 20)
     private SubjectScope scope;
@@ -71,14 +74,19 @@ public class Subject {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "last_document_activity_at")
+    private LocalDateTime lastDocumentActivityAt;
+
     @PrePersist
     void initDefaults() {
         if (id == null) id = UUID.randomUUID();
         if (name != null) name = name.trim();
+        if (semesterLabel != null) semesterLabel = semesterLabel.trim();
     }
 
     @PreUpdate
     void onUpdate() {
         if (name != null) name = name.trim();
+        if (semesterLabel != null) semesterLabel = semesterLabel.trim();
     }
 }

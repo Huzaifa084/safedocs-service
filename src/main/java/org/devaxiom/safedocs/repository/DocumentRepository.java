@@ -15,7 +15,17 @@ import java.util.UUID;
 public interface DocumentRepository extends JpaRepository<Document, Long> {
     Optional<Document> findByPublicId(UUID publicId);
 
+    List<Document> findByPublicIdInAndStatus(List<UUID> publicIds, DocumentStatus status);
+
     List<Document> findByOwnerIdAndVisibilityAndStatus(Long ownerId, DocumentVisibility visibility, DocumentStatus status, Sort sort);
+
+        List<Document> findByOwnerIdAndVisibilityAndStatusAndCreatedDateGreaterThanEqualAndCreatedDateLessThan(
+            Long ownerId,
+            DocumentVisibility visibility,
+            DocumentStatus status,
+            java.time.LocalDateTime createdAfter,
+            java.time.LocalDateTime createdBefore,
+            Sort sort);
 
     Optional<Document> findByOwnerIdAndDriveFileId(Long ownerId, String driveFileId);
 
@@ -23,9 +33,18 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
 
     List<Document> findByFamilyIdInAndStatus(List<Long> familyIds, DocumentStatus status, Sort sort);
 
+        List<Document> findByFamilyIdInAndStatusAndCreatedDateGreaterThanEqualAndCreatedDateLessThan(
+            List<Long> familyIds,
+            DocumentStatus status,
+            java.time.LocalDateTime createdAfter,
+            java.time.LocalDateTime createdBefore,
+            Sort sort);
+
     List<Document> findByFamilyId(Long familyId);
 
     List<Document> findByOwnerIdAndStatus(Long ownerId, DocumentStatus status, Sort sort);
+
+    List<Document> findBySubject_Id(UUID subjectId);
 
     boolean existsBySubject_Id(UUID subjectId);
 

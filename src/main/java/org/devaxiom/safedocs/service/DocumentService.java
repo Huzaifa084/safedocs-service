@@ -9,12 +9,17 @@ import org.devaxiom.safedocs.dto.document.DocumentReconcileRequest;
 import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
+import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectRequest;
+import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectResponse;
+import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsRequest;
+import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsResponse;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentReferenceType;
 import org.devaxiom.safedocs.enums.DocumentShareStatus;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
+import org.devaxiom.safedocs.enums.DocumentActivityAction;
 import org.devaxiom.safedocs.enums.SubjectScope;
 import org.devaxiom.safedocs.enums.PermissionJobAction;
 import org.devaxiom.safedocs.enums.StorageProvider;
@@ -44,6 +49,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -59,6 +65,8 @@ public class DocumentService {
     private final SubjectRepository subjectRepository;
     private final UserRepository userRepository;
     private final PermissionJobService permissionJobService;
+    private final DocumentActivityService documentActivityService;
+    private final SubjectService subjectService;
 
     public DocumentResponse upsertDocument(CreateDocumentRequest request, User currentUser) {
         if (currentUser == null) throw new UnauthorizedException("Unauthorized");
@@ -121,6 +129,13 @@ public class DocumentService {
 
         enqueueFamilyJobsOnVisibilityChange(doc, doc.getOwner(), oldVisibility, oldFamily, request.visibility(), newFamily);
 
+        if (isNew) {
+            documentActivityService.record(doc, currentUser, DocumentActivityAction.UPLOAD);
+            if (doc.getSubject() != null) {
+                subjectService.touchDocumentActivity(doc.getSubject());
+            }
+        }
+
         return toResponse(doc);
     }
 
@@ -128,6 +143,8 @@ public class DocumentService {
         Document doc = getActiveDocument(documentId);
         assertCanUpdate(doc, currentUser);
         enforceImmutableUpdates(request);
+
+        UUID oldSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
 
         if (request.title() != null) doc.setTitle(request.title());
         if (request.category() != null) doc.setCategory(request.category());
@@ -160,6 +177,17 @@ public class DocumentService {
 
         enqueueFamilyJobsOnVisibilityChange(doc, doc.getOwner(), oldVisibility, oldFamily, newVisibility, newFamily);
 
+        UUID newSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+        if (!Objects.equals(oldSubjectId, newSubjectId)) {
+            documentActivityService.record(doc, currentUser, DocumentActivityAction.MOVE);
+            if (oldSubjectId != null) {
+                subjectRepository.findById(oldSubjectId).ifPresent(subjectService::touchDocumentActivity);
+            }
+            if (doc.getSubject() != null) {
+                subjectService.touchDocumentActivity(doc.getSubject());
+            }
+        }
+
         return toResponse(doc);
     }
 
@@ -174,12 +202,135 @@ public class DocumentService {
         Document doc = getActiveDocument(documentId);
         assertCanUpdate(doc, currentUser);
 
+        UUID oldSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+
         UUID subjectId = request != null ? request.subjectId() : null;
         Subject newSubject = resolveSubjectForDocument(doc.getVisibility(), doc.getFamily(), subjectId, currentUser);
         doc.setSubject(newSubject);
         doc = documentRepository.save(doc);
 
+        UUID newSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+        if (!Objects.equals(oldSubjectId, newSubjectId)) {
+            documentActivityService.record(doc, currentUser, DocumentActivityAction.MOVE);
+            if (oldSubjectId != null) {
+                subjectRepository.findById(oldSubjectId).ifPresent(subjectService::touchDocumentActivity);
+            }
+            if (doc.getSubject() != null) {
+                subjectService.touchDocumentActivity(doc.getSubject());
+            }
+        }
+
         return toResponse(doc);
+    }
+
+    public BulkUpdateDocumentSubjectResponse bulkUpdateDocumentSubject(BulkUpdateDocumentSubjectRequest request, User currentUser) {
+        if (currentUser == null) throw new UnauthorizedException("Unauthorized");
+        if (request == null || request.documentIds() == null || request.documentIds().isEmpty()) {
+            throw new BadRequestException("documentIds is required");
+        }
+
+        List<UUID> ids = request.documentIds().stream().distinct().toList();
+        List<Document> docs = documentRepository.findByPublicIdInAndStatus(ids, DocumentStatus.ACTIVE);
+
+        java.util.Map<UUID, Document> byId = new java.util.HashMap<>();
+        for (Document doc : docs) {
+            byId.put(doc.getPublicId(), doc);
+        }
+
+        List<UUID> updated = new ArrayList<>();
+        List<BulkUpdateDocumentSubjectResponse.Failure> failed = new ArrayList<>();
+
+        for (UUID id : ids) {
+            Document doc = byId.get(id);
+            if (doc == null) {
+                failed.add(new BulkUpdateDocumentSubjectResponse.Failure(id, BulkUpdateDocumentSubjectResponse.BulkFailureReason.NOT_FOUND));
+                continue;
+            }
+            try {
+                assertCanUpdate(doc, currentUser);
+                UUID oldSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+                Subject newSubject = resolveSubjectForDocument(doc.getVisibility(), doc.getFamily(), request.subjectId(), currentUser);
+                doc.setSubject(newSubject);
+
+                doc = documentRepository.save(doc);
+                updated.add(id);
+
+                UUID newSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+                if (!Objects.equals(oldSubjectId, newSubjectId)) {
+                    documentActivityService.record(doc, currentUser, DocumentActivityAction.MOVE);
+                    if (oldSubjectId != null) {
+                        subjectRepository.findById(oldSubjectId).ifPresent(subjectService::touchDocumentActivity);
+                    }
+                    if (doc.getSubject() != null) {
+                        subjectService.touchDocumentActivity(doc.getSubject());
+                    }
+                }
+            } catch (UnauthorizedException ex) {
+                failed.add(new BulkUpdateDocumentSubjectResponse.Failure(id, BulkUpdateDocumentSubjectResponse.BulkFailureReason.PERMISSION_DENIED));
+            } catch (BadRequestException ex) {
+                failed.add(new BulkUpdateDocumentSubjectResponse.Failure(id, BulkUpdateDocumentSubjectResponse.BulkFailureReason.INVALID_SUBJECT));
+            }
+        }
+
+        return new BulkUpdateDocumentSubjectResponse(updated, failed);
+    }
+
+    public BulkDeleteDocumentsResponse bulkDeleteDocuments(BulkDeleteDocumentsRequest request, User currentUser) {
+        if (currentUser == null) throw new UnauthorizedException("Unauthorized");
+        if (request == null || request.documentIds() == null || request.documentIds().isEmpty()) {
+            throw new BadRequestException("documentIds is required");
+        }
+
+        List<UUID> ids = request.documentIds().stream().distinct().toList();
+        List<Document> docs = documentRepository.findByPublicIdInAndStatus(ids, DocumentStatus.ACTIVE);
+
+        java.util.Map<UUID, Document> byId = new java.util.HashMap<>();
+        for (Document doc : docs) {
+            byId.put(doc.getPublicId(), doc);
+        }
+
+        List<UUID> deleted = new ArrayList<>();
+        List<BulkDeleteDocumentsResponse.Failure> failed = new ArrayList<>();
+
+        for (UUID id : ids) {
+            Document doc = byId.get(id);
+            if (doc == null) {
+                failed.add(new BulkDeleteDocumentsResponse.Failure(id, BulkDeleteDocumentsResponse.BulkFailureReason.NOT_FOUND));
+                continue;
+            }
+            try {
+                assertCanDelete(doc, currentUser);
+
+                if (doc.getVisibility() == DocumentVisibility.FAMILY) {
+                    enqueueFamilyJobs(doc, doc.getOwner(), doc.getFamily(), PermissionJobAction.REVOKE);
+                } else if (doc.getVisibility() == DocumentVisibility.SHARED) {
+                    enqueueShareJobs(doc, doc.getOwner(), PermissionJobAction.REVOKE);
+                }
+
+                doc.setStatus(DocumentStatus.DELETED_OR_REVOKED);
+                documentRepository.save(doc);
+                deleted.add(id);
+
+                documentActivityService.record(doc, currentUser, DocumentActivityAction.DELETE);
+                if (doc.getSubject() != null) {
+                    subjectService.touchDocumentActivity(doc.getSubject());
+                }
+            } catch (UnauthorizedException ex) {
+                failed.add(new BulkDeleteDocumentsResponse.Failure(id, BulkDeleteDocumentsResponse.BulkFailureReason.PERMISSION_DENIED));
+            }
+        }
+
+        return new BulkDeleteDocumentsResponse(deleted, failed);
+    }
+
+    public void markDownloaded(UUID documentId, User currentUser) {
+        if (currentUser == null) throw new UnauthorizedException("Unauthorized");
+        Document doc = getActiveDocument(documentId);
+        assertCanView(doc, currentUser);
+        documentActivityService.record(doc, currentUser, DocumentActivityAction.DOWNLOAD);
+        if (doc.getSubject() != null) {
+            subjectService.touchDocumentActivity(doc.getSubject());
+        }
     }
 
     public List<DocumentListItem> listPersonal(User user) {
@@ -231,8 +382,14 @@ public class DocumentService {
         validateSubjectFilter(filter, user);
 
         List<Document> base = switch (filter.visibility) {
-            case PERSONAL -> documentRepository.findByOwnerIdAndVisibilityAndStatus(
-                    user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
+            case PERSONAL -> {
+                if (filter.createdAfter != null && filter.createdBefore != null) {
+                    yield documentRepository.findByOwnerIdAndVisibilityAndStatusAndCreatedDateGreaterThanEqualAndCreatedDateLessThan(
+                            user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, filter.createdAfter, filter.createdBefore, DEFAULT_SORT);
+                }
+                yield documentRepository.findByOwnerIdAndVisibilityAndStatus(
+                        user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
+            }
             case FAMILY -> {
                 List<FamilyMember> memberships = familyMemberRepository.findByUserIdAndActiveTrue(user.getId());
                 if (memberships.isEmpty()) yield List.of();
@@ -247,7 +404,14 @@ public class DocumentService {
                     }
                     familyIds = List.of(family.getId());
                 }
-                yield documentRepository.findByFamilyIdInAndStatus(familyIds, DocumentStatus.ACTIVE, DEFAULT_SORT)
+                List<Document> raw;
+                if (filter.createdAfter != null && filter.createdBefore != null) {
+                    raw = documentRepository.findByFamilyIdInAndStatusAndCreatedDateGreaterThanEqualAndCreatedDateLessThan(
+                            familyIds, DocumentStatus.ACTIVE, filter.createdAfter, filter.createdBefore, DEFAULT_SORT);
+                } else {
+                    raw = documentRepository.findByFamilyIdInAndStatus(familyIds, DocumentStatus.ACTIVE, DEFAULT_SORT);
+                }
+                yield raw
                         .stream()
                         .filter(d -> d.getVisibility() == DocumentVisibility.FAMILY)
                         .toList();
@@ -290,6 +454,8 @@ public class DocumentService {
         Document doc = getActiveDocument(documentId);
         assertCanDelete(doc, user);
 
+        Subject subject = doc.getSubject();
+
         if (doc.getVisibility() == DocumentVisibility.FAMILY) {
             enqueueFamilyJobs(doc, doc.getOwner(), doc.getFamily(), PermissionJobAction.REVOKE);
         } else if (doc.getVisibility() == DocumentVisibility.SHARED) {
@@ -298,6 +464,10 @@ public class DocumentService {
 
         doc.setStatus(DocumentStatus.DELETED_OR_REVOKED);
         documentRepository.save(doc);
+        documentActivityService.record(doc, user, DocumentActivityAction.DELETE);
+        if (subject != null) {
+            subjectService.touchDocumentActivity(subject);
+        }
     }
 
     public List<DocumentShareResponse> addShares(UUID documentId, List<String> emails, User currentUser) {
@@ -719,7 +889,9 @@ public class DocumentService {
             int size,
             UUID familyId,
             UUID subjectId,
-            boolean uncategorized
+            boolean uncategorized,
+            LocalDateTime createdAfter,
+            LocalDateTime createdBefore
     ) {
     }
 }

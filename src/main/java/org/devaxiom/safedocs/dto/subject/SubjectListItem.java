@@ -8,11 +8,13 @@ import java.util.UUID;
 public record SubjectListItem(
         UUID id,
         String name,
+        String semesterLabel,
         SubjectScope scope,
         UUID familyId,
         Long ownerUserId,
         long documentCount,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        LocalDateTime lastDocumentActivityAt
 ) {
 }

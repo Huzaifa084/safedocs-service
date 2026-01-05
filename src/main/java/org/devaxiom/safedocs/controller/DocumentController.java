@@ -6,6 +6,10 @@ import org.devaxiom.safedocs.dto.base.BaseResponse;
 import org.devaxiom.safedocs.dto.base.BaseResponseEntity;
 import org.devaxiom.safedocs.dto.base.ResponseBuilder;
 import org.devaxiom.safedocs.dto.document.AddShareRequest;
+import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsRequest;
+import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsResponse;
+import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectRequest;
+import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectResponse;
 import org.devaxiom.safedocs.dto.document.CreateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.DocumentPageResponse;
 import org.devaxiom.safedocs.dto.document.DocumentReconcileRequest;
@@ -31,6 +35,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -69,7 +75,9 @@ public class DocumentController {
             @RequestParam(value = "size", defaultValue = "20") int size,
             @RequestParam(value = "familyId", required = false) String familyId,
             @RequestParam(value = "subjectId", required = false) String subjectId,
-            @RequestParam(value = "uncategorized", defaultValue = "false") boolean uncategorized) {
+            @RequestParam(value = "uncategorized", defaultValue = "false") boolean uncategorized,
+            @RequestParam(value = "createdAfter", required = false) String createdAfter,
+            @RequestParam(value = "createdBefore", required = false) String createdBefore) {
         if (type != null) {
             throw new BadRequestException("type is deprecated; use visibility");
         }
@@ -77,6 +85,10 @@ public class DocumentController {
             throw new BadRequestException("Use either subjectId or uncategorized=true, not both");
         }
         User user = requireUser();
+
+        LocalDateTime createdAfterLdt = createdAfter != null ? parseDateStart(createdAfter) : null;
+        LocalDateTime createdBeforeLdt = createdBefore != null ? parseDateEndExclusive(createdBefore) : null;
+
         DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
                 visibility,
                 category,
@@ -85,10 +97,30 @@ public class DocumentController {
                 size,
                 familyId != null ? parseId(familyId) : null,
                 subjectId != null ? parseId(subjectId) : null,
-                uncategorized
+                uncategorized,
+                createdAfterLdt,
+                createdBeforeLdt
         );
         DocumentPageResponse resp = documentService.listWithFilters(filter, user);
         return ResponseBuilder.success(resp, "Documents fetched");
+    }
+
+    @PatchMapping("/subject/bulk")
+    public BaseResponseEntity<BulkUpdateDocumentSubjectResponse> bulkUpdateSubject(
+            @Valid @RequestBody BulkUpdateDocumentSubjectRequest request
+    ) {
+        User user = requireUser();
+        BulkUpdateDocumentSubjectResponse resp = documentService.bulkUpdateDocumentSubject(request, user);
+        return ResponseBuilder.success(resp, "Documents updated");
+    }
+
+    @DeleteMapping("/bulk")
+    public BaseResponseEntity<BulkDeleteDocumentsResponse> bulkDelete(
+            @Valid @RequestBody BulkDeleteDocumentsRequest request
+    ) {
+        User user = requireUser();
+        BulkDeleteDocumentsResponse resp = documentService.bulkDeleteDocuments(request, user);
+        return ResponseBuilder.success(resp, "Documents deleted");
     }
 
     @PatchMapping("/{id}/subject")
@@ -169,6 +201,13 @@ public class DocumentController {
         return new BaseResponseEntity<>(body, HttpStatus.GONE);
     }
 
+    @PostMapping("/{id}/downloaded")
+    public BaseResponseEntity<?> downloaded(@PathVariable("id") String id) {
+        User user = requireUser();
+        documentService.markDownloaded(parseId(id), user);
+        return ResponseBuilder.success("Download recorded");
+    }
+
     private User requireUser() {
         return principleUserService.getCurrentUser()
                 .orElseThrow(() -> new BadRequestException("Unauthorized"));
@@ -179,6 +218,24 @@ public class DocumentController {
             return UUID.fromString(raw);
         } catch (IllegalArgumentException ex) {
             throw new BadRequestException("Invalid document id");
+        }
+    }
+
+    private LocalDateTime parseDateStart(String raw) {
+        try {
+            LocalDate date = LocalDate.parse(raw);
+            return date.atStartOfDay();
+        } catch (Exception ex) {
+            throw new BadRequestException("Invalid createdAfter; expected yyyy-MM-dd");
+        }
+    }
+
+    private LocalDateTime parseDateEndExclusive(String raw) {
+        try {
+            LocalDate date = LocalDate.parse(raw);
+            return date.plusDays(1).atStartOfDay();
+        } catch (Exception ex) {
+            throw new BadRequestException("Invalid createdBefore; expected yyyy-MM-dd");
         }
     }
 }

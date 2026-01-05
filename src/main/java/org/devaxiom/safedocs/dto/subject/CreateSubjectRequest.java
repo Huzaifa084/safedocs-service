@@ -9,6 +9,7 @@ import java.util.UUID;
 public record CreateSubjectRequest(
         @NotBlank(message = "name is required")
         String name,
+        String semesterLabel,
         @NotNull(message = "scope is required")
         SubjectScope scope,
         UUID familyId
