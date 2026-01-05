@@ -12,6 +12,7 @@ public record UpdateDocumentRequest(
         String category,
         DocumentVisibility visibility,
         UUID familyId,
+        UUID subjectId,
         String driveFileId,
         String fileName,
         DocumentReferenceType referenceType,

@@ -21,6 +21,7 @@ public record CreateDocumentRequest(
         DocumentVisibility visibility,
         String category,
         UUID familyId,
+        UUID subjectId,
         Instant driveCreatedAt,
         String driveWebViewLink,
         String driveMd5,

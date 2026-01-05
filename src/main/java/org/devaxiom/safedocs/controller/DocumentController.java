@@ -13,6 +13,7 @@ import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
+import org.devaxiom.safedocs.dto.document.UpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
@@ -21,6 +22,7 @@ import org.devaxiom.safedocs.service.PrincipleUserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -65,9 +67,14 @@ public class DocumentController {
             @RequestParam(value = "search", required = false) String search,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "20") int size,
-            @RequestParam(value = "familyId", required = false) String familyId) {
+            @RequestParam(value = "familyId", required = false) String familyId,
+            @RequestParam(value = "subjectId", required = false) String subjectId,
+            @RequestParam(value = "uncategorized", defaultValue = "false") boolean uncategorized) {
         if (type != null) {
             throw new BadRequestException("type is deprecated; use visibility");
+        }
+        if (uncategorized && subjectId != null) {
+            throw new BadRequestException("Use either subjectId or uncategorized=true, not both");
         }
         User user = requireUser();
         DocumentService.DocumentFilter filter = new DocumentService.DocumentFilter(
@@ -76,10 +83,22 @@ public class DocumentController {
                 search,
                 page,
                 size,
-                familyId != null ? parseId(familyId) : null
+                familyId != null ? parseId(familyId) : null,
+                subjectId != null ? parseId(subjectId) : null,
+                uncategorized
         );
         DocumentPageResponse resp = documentService.listWithFilters(filter, user);
         return ResponseBuilder.success(resp, "Documents fetched");
+    }
+
+    @PatchMapping("/{id}/subject")
+    public BaseResponseEntity<DocumentResponse> updateSubject(
+            @PathVariable("id") String id,
+            @RequestBody UpdateDocumentSubjectRequest request
+    ) {
+        User user = requireUser();
+        DocumentResponse resp = documentService.updateDocumentSubject(parseId(id), request, user);
+        return ResponseBuilder.success(resp, "Document updated");
     }
 
     @GetMapping("/shared/with-me")

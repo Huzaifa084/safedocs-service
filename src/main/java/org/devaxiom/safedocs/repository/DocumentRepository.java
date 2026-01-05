@@ -26,4 +26,10 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
     List<Document> findByFamilyId(Long familyId);
 
     List<Document> findByOwnerIdAndStatus(Long ownerId, DocumentStatus status, Sort sort);
+
+    boolean existsBySubject_Id(UUID subjectId);
+
+    long countByOwnerIdAndStatusAndVisibilityInAndSubject_Id(Long ownerId, DocumentStatus status, java.util.Set<DocumentVisibility> visibility, UUID subjectId);
+
+    long countByFamilyIdAndStatusAndVisibilityAndSubject_Id(Long familyId, DocumentStatus status, DocumentVisibility visibility, UUID subjectId);
 }

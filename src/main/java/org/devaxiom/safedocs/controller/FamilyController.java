@@ -11,6 +11,7 @@ import org.devaxiom.safedocs.dto.family.FamilySummaryResponse;
 import org.devaxiom.safedocs.dto.family.FamilyInviteResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
 import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
+import org.devaxiom.safedocs.dto.family.UpdateFamilyMemberRoleRequest;
 import org.devaxiom.safedocs.exception.BadRequestException;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.service.FamilyService;
@@ -92,6 +93,17 @@ public class FamilyController {
         User user = currentUser();
         familyService.removeMember(user, parseUuid(familyId), userId);
         return ResponseBuilder.success("Member removed");
+    }
+
+    @PatchMapping("/{familyId}/members/{userId}")
+    public BaseResponseEntity<FamilyMemberResponse> updateMemberRole(
+            @PathVariable String familyId,
+            @PathVariable("userId") Long userId,
+            @Valid @RequestBody UpdateFamilyMemberRoleRequest request
+    ) {
+        User user = currentUser();
+        FamilyMemberResponse resp = familyService.updateMemberRole(user, parseUuid(familyId), userId, request);
+        return ResponseBuilder.success(resp, "Member role updated");
     }
 
     @PostMapping("/{familyId}/leave")

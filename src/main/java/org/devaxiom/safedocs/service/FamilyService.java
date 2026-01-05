@@ -8,6 +8,7 @@ import org.devaxiom.safedocs.dto.family.FamilySummaryResponse;
 import org.devaxiom.safedocs.dto.family.FamilyInviteResponse;
 import org.devaxiom.safedocs.dto.family.InviteFamilyMemberRequest;
 import org.devaxiom.safedocs.dto.family.UpdateFamilyRequest;
+import org.devaxiom.safedocs.dto.family.UpdateFamilyMemberRoleRequest;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
 import org.devaxiom.safedocs.enums.FamilyInviteStatus;
@@ -144,7 +145,7 @@ public class FamilyService {
                 .build();
         invite = familyInviteRepository.save(invite);
         sendInviteEmail(invite);
-        return new FamilyMemberResponse(null, invite.getEmail(), null, FamilyRole.MEMBER, false);
+        return new FamilyMemberResponse(null, invite.getEmail(), null, FamilyRole.VIEWER, false);
     }
 
     @Transactional
@@ -162,7 +163,7 @@ public class FamilyService {
             FamilyMember member = FamilyMember.builder()
                     .family(family)
                     .user(currentUser)
-                    .role(FamilyRole.MEMBER)
+                    .role(FamilyRole.VIEWER)
                     .active(true)
                     .build();
             familyMemberRepository.save(member);
@@ -173,7 +174,34 @@ public class FamilyService {
         // Enqueue GRANT jobs for all FAMILY documents in this family
         enqueueJobsForFamilyDocs(family, normalizeEmail(currentUser.getEmail()), PermissionJobAction.GRANT);
 
-        return toResponse(currentUser, FamilyRole.MEMBER, true);
+        return toResponse(currentUser, FamilyRole.VIEWER, true);
+    }
+
+    @Transactional
+    public FamilyMemberResponse updateMemberRole(User currentUser, UUID familyPublicId, Long memberUserId, UpdateFamilyMemberRoleRequest req) {
+        FamilyMember headMembership = requireMembershipWithRole(familyPublicId, currentUser, FamilyRole.HEAD);
+        Family family = headMembership.getFamily();
+
+        if (req == null || req.role() == null) {
+            throw new BadRequestException("role is required");
+        }
+
+        FamilyRole desired = req.role();
+
+        FamilyMember member = familyMemberRepository.findByFamilyIdAndUserIdAndActiveTrue(family.getId(), memberUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member not found"));
+
+        if (member.getRole() == FamilyRole.HEAD && desired != FamilyRole.HEAD) {
+            long headCount = familyMemberRepository.countByFamilyIdAndRoleAndActiveTrue(family.getId(), FamilyRole.HEAD);
+            if (headCount <= 1) {
+                throw new BadRequestException("Cannot demote the last family head");
+            }
+        }
+
+        member.setRole(desired);
+        familyMemberRepository.save(member);
+
+        return toResponse(member);
     }
 
     @Transactional

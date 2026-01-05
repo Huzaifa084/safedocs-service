@@ -10,10 +10,12 @@ import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
+import org.devaxiom.safedocs.dto.document.UpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentReferenceType;
 import org.devaxiom.safedocs.enums.DocumentShareStatus;
 import org.devaxiom.safedocs.enums.DocumentStatus;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
+import org.devaxiom.safedocs.enums.SubjectScope;
 import org.devaxiom.safedocs.enums.PermissionJobAction;
 import org.devaxiom.safedocs.enums.StorageProvider;
 import org.devaxiom.safedocs.enums.FamilyRole;
@@ -24,11 +26,13 @@ import org.devaxiom.safedocs.model.Document;
 import org.devaxiom.safedocs.model.DocumentShare;
 import org.devaxiom.safedocs.model.Family;
 import org.devaxiom.safedocs.model.FamilyMember;
+import org.devaxiom.safedocs.model.Subject;
 import org.devaxiom.safedocs.model.User;
 import org.devaxiom.safedocs.repository.DocumentRepository;
 import org.devaxiom.safedocs.repository.DocumentShareRepository;
 import org.devaxiom.safedocs.repository.FamilyMemberRepository;
 import org.devaxiom.safedocs.repository.FamilyRepository;
+import org.devaxiom.safedocs.repository.SubjectRepository;
 import org.devaxiom.safedocs.repository.UserRepository;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -52,6 +56,7 @@ public class DocumentService {
     private final DocumentShareRepository documentShareRepository;
     private final FamilyMemberRepository familyMemberRepository;
     private final FamilyRepository familyRepository;
+    private final SubjectRepository subjectRepository;
     private final UserRepository userRepository;
     private final PermissionJobService permissionJobService;
 
@@ -95,8 +100,22 @@ public class DocumentService {
         }
 
         Family newFamily = resolveFamilyForVisibility(request.visibility(), request.familyId(), currentUser, doc);
+        if (request.visibility() == DocumentVisibility.FAMILY) {
+            assertCanCreateOrUpdateFamilyDocument(newFamily, currentUser);
+        }
+
+        Subject newSubject;
+        if (request.subjectId() != null) {
+            newSubject = resolveSubjectForDocument(request.visibility(), newFamily, request.subjectId(), currentUser);
+        } else if (oldVisibility != request.visibility() || !sameFamily(oldFamily, newFamily)) {
+            UUID existingSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+            newSubject = resolveSubjectForDocument(request.visibility(), newFamily, existingSubjectId, currentUser);
+        } else {
+            newSubject = doc.getSubject();
+        }
         doc.setVisibility(request.visibility());
         doc.setFamily(newFamily);
+        doc.setSubject(newSubject);
 
         doc = documentRepository.save(doc);
 
@@ -107,7 +126,7 @@ public class DocumentService {
 
     public DocumentResponse updateDocument(UUID documentId, UpdateDocumentRequest request, User currentUser) {
         Document doc = getActiveDocument(documentId);
-        assertCanModify(doc, currentUser);
+        assertCanUpdate(doc, currentUser);
         enforceImmutableUpdates(request);
 
         if (request.title() != null) doc.setTitle(request.title());
@@ -119,8 +138,23 @@ public class DocumentService {
         Family oldFamily = doc.getFamily();
 
         Family newFamily = resolveFamilyForVisibility(newVisibility, newFamilyId, currentUser, doc);
+        if (newVisibility == DocumentVisibility.FAMILY) {
+            assertCanCreateOrUpdateFamilyDocument(newFamily, currentUser);
+        }
+
+        Subject newSubject;
+        if (request.subjectId() != null) {
+            newSubject = resolveSubjectForDocument(newVisibility, newFamily, request.subjectId(), currentUser);
+        } else if (oldVisibility != newVisibility || !sameFamily(oldFamily, newFamily)) {
+            UUID existingSubjectId = doc.getSubject() != null ? doc.getSubject().getId() : null;
+            newSubject = resolveSubjectForDocument(newVisibility, newFamily, existingSubjectId, currentUser);
+        } else {
+            newSubject = doc.getSubject();
+        }
+
         doc.setVisibility(newVisibility);
         doc.setFamily(newFamily);
+        doc.setSubject(newSubject);
 
         doc = documentRepository.save(doc);
 
@@ -132,6 +166,19 @@ public class DocumentService {
     public DocumentResponse getDocument(UUID documentId, User user) {
         Document doc = getActiveDocument(documentId);
         assertCanView(doc, user);
+        return toResponse(doc);
+    }
+
+    public DocumentResponse updateDocumentSubject(UUID documentId, UpdateDocumentSubjectRequest request, User currentUser) {
+        if (currentUser == null) throw new UnauthorizedException("Unauthorized");
+        Document doc = getActiveDocument(documentId);
+        assertCanUpdate(doc, currentUser);
+
+        UUID subjectId = request != null ? request.subjectId() : null;
+        Subject newSubject = resolveSubjectForDocument(doc.getVisibility(), doc.getFamily(), subjectId, currentUser);
+        doc.setSubject(newSubject);
+        doc = documentRepository.save(doc);
+
         return toResponse(doc);
     }
 
@@ -177,6 +224,12 @@ public class DocumentService {
 
     public DocumentPageResponse listWithFilters(DocumentFilter filter, User user) {
         if (filter.visibility == null) throw new BadRequestException("visibility is required");
+
+        if (filter.subjectId != null && filter.uncategorized) {
+            throw new BadRequestException("Use either subjectId or uncategorized=true, not both");
+        }
+        validateSubjectFilter(filter, user);
+
         List<Document> base = switch (filter.visibility) {
             case PERSONAL -> documentRepository.findByOwnerIdAndVisibilityAndStatus(
                     user.getId(), DocumentVisibility.PERSONAL, DocumentStatus.ACTIVE, DEFAULT_SORT);
@@ -218,6 +271,8 @@ public class DocumentService {
         List<Document> filtered = base.stream()
                 .filter(d -> filter.category == null || (d.getCategory() != null && d.getCategory().equalsIgnoreCase(filter.category)))
                 .filter(d -> filter.search == null || matchesSearch(d, filter.search))
+            .filter(d -> filter.subjectId == null || (d.getSubject() != null && Objects.equals(d.getSubject().getId(), filter.subjectId)))
+            .filter(d -> !filter.uncategorized || d.getSubject() == null)
                 .toList();
 
         int page = Math.max(0, filter.page);
@@ -233,7 +288,7 @@ public class DocumentService {
 
     public void deleteDocument(UUID documentId, User user) {
         Document doc = getActiveDocument(documentId);
-        assertCanModify(doc, user);
+        assertCanDelete(doc, user);
 
         if (doc.getVisibility() == DocumentVisibility.FAMILY) {
             enqueueFamilyJobs(doc, doc.getOwner(), doc.getFamily(), PermissionJobAction.REVOKE);
@@ -366,7 +421,7 @@ public class DocumentService {
         }
     }
 
-    private void assertCanModify(Document doc, User user) {
+    private void assertCanUpdate(Document doc, User user) {
         if (user == null) throw new UnauthorizedException("Unauthorized");
         if (doc.getVisibility() == DocumentVisibility.PERSONAL) {
             if (!Objects.equals(doc.getOwner().getId(), user.getId())) {
@@ -378,16 +433,46 @@ public class DocumentService {
             if (Objects.equals(doc.getOwner().getId(), user.getId())) return;
             Family family = doc.getFamily();
             if (family == null) throw new UnauthorizedException("Family access not configured");
-            boolean head = familyMemberRepository.findByFamilyIdAndRoleAndActiveTrue(family.getId(), FamilyRole.HEAD)
-                    .stream()
-                    .anyMatch(m -> Objects.equals(m.getUser().getId(), user.getId()));
-            if (!head) throw new UnauthorizedException("Only family head or owner can modify");
+            boolean canEdit = familyMemberRepository.existsByFamilyIdAndUserIdAndActiveTrueAndRoleIn(
+                    family.getId(),
+                    user.getId(),
+                    List.of(FamilyRole.HEAD, FamilyRole.CONTRIBUTOR)
+            );
+            if (!canEdit) throw new UnauthorizedException("Only family head/contributor or owner can modify");
             return;
         }
         if (doc.getVisibility() == DocumentVisibility.SHARED) {
             if (!Objects.equals(doc.getOwner().getId(), user.getId())) {
                 throw new UnauthorizedException("Only owner can modify a shared document");
             }
+        }
+    }
+
+    private void assertCanDelete(Document doc, User user) {
+        if (user == null) throw new UnauthorizedException("Unauthorized");
+        if (doc.getVisibility() != DocumentVisibility.FAMILY) {
+            assertCanUpdate(doc, user);
+            return;
+        }
+        Family family = doc.getFamily();
+        if (family == null) throw new UnauthorizedException("Family access not configured");
+        boolean isHead = familyMemberRepository.existsByFamilyIdAndUserIdAndActiveTrueAndRoleIn(
+                family.getId(),
+                user.getId(),
+                List.of(FamilyRole.HEAD)
+        );
+        if (!isHead) throw new UnauthorizedException("Only family head can delete a family document");
+    }
+
+    private void assertCanCreateOrUpdateFamilyDocument(Family family, User user) {
+        if (family == null) throw new BadRequestException("familyId is required for FAMILY documents");
+        boolean canEdit = familyMemberRepository.existsByFamilyIdAndUserIdAndActiveTrueAndRoleIn(
+                family.getId(),
+                user.getId(),
+                List.of(FamilyRole.HEAD, FamilyRole.CONTRIBUTOR)
+        );
+        if (!canEdit) {
+            throw new UnauthorizedException("Only family head/contributor can create or update family documents");
         }
     }
 
@@ -499,6 +584,7 @@ public class DocumentService {
                 doc.getVisibility(),
                 doc.getCategory(),
                 doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
+                doc.getSubject() != null ? doc.getSubject().getId() : null,
                 doc.getReferenceType(),
                 doc.getStatus(),
                 doc.getDriveCreatedAt(),
@@ -529,6 +615,7 @@ public class DocumentService {
                 doc.getVisibility(),
                 doc.getCategory(),
                 doc.getFamily() != null ? doc.getFamily().getPublicId() : null,
+                doc.getSubject() != null ? doc.getSubject().getId() : null,
                 doc.getReferenceType(),
                 doc.getStatus()
         );
@@ -563,13 +650,76 @@ public class DocumentService {
         return family;
     }
 
+    private void validateSubjectFilter(DocumentFilter filter, User user) {
+        if (filter.subjectId == null) return;
+
+        Subject subject = subjectRepository.findById(filter.subjectId)
+                .orElseThrow(() -> new BadRequestException("Subject not found"));
+
+        if (filter.visibility == DocumentVisibility.FAMILY) {
+            if (subject.getScope() != SubjectScope.FAMILY) {
+                throw new BadRequestException("Subject scope must be FAMILY for FAMILY visibility");
+            }
+            if (subject.getFamily() == null) {
+                throw new BadRequestException("Subject is missing family association");
+            }
+            boolean member = familyMemberRepository.findByFamilyIdAndUserIdAndActiveTrue(subject.getFamily().getId(), user.getId()).isPresent();
+            if (!member) {
+                throw new UnauthorizedException("Not allowed to filter by this subject");
+            }
+            if (filter.familyId != null) {
+                Family family = familyRepository.findByPublicId(filter.familyId)
+                        .orElseThrow(() -> new BadRequestException("Family not found"));
+                if (!Objects.equals(family.getId(), subject.getFamily().getId())) {
+                    throw new BadRequestException("Subject does not belong to selected family");
+                }
+            }
+            return;
+        }
+
+        if (subject.getScope() != SubjectScope.PERSONAL) {
+            throw new BadRequestException("Subject scope must be PERSONAL for this visibility");
+        }
+        if (subject.getOwner() == null || !Objects.equals(subject.getOwner().getId(), user.getId())) {
+            throw new UnauthorizedException("Not allowed to filter by this subject");
+        }
+    }
+
+    private Subject resolveSubjectForDocument(DocumentVisibility visibility, Family family, UUID subjectId, User user) {
+        if (subjectId == null) return null;
+
+        Subject subject = subjectRepository.findById(subjectId)
+                .orElseThrow(() -> new BadRequestException("Subject not found"));
+
+        if (visibility == DocumentVisibility.FAMILY) {
+            if (family == null) throw new BadRequestException("familyId is required for FAMILY documents");
+            if (subject.getScope() != SubjectScope.FAMILY) {
+                throw new BadRequestException("Subject scope must be FAMILY for FAMILY documents");
+            }
+            if (subject.getFamily() == null || !Objects.equals(subject.getFamily().getId(), family.getId())) {
+                throw new BadRequestException("Subject does not belong to selected family");
+            }
+            return subject;
+        }
+
+        if (subject.getScope() != SubjectScope.PERSONAL) {
+            throw new BadRequestException("Subject scope must be PERSONAL for non-family documents");
+        }
+        if (subject.getOwner() == null || !Objects.equals(subject.getOwner().getId(), user.getId())) {
+            throw new UnauthorizedException("Not allowed to use this subject");
+        }
+        return subject;
+    }
+
     public record DocumentFilter(
             DocumentVisibility visibility,
             String category,
             String search,
             int page,
             int size,
-            UUID familyId
+            UUID familyId,
+            UUID subjectId,
+            boolean uncategorized
     ) {
     }
 }

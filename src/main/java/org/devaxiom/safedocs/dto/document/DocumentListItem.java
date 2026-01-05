@@ -16,6 +16,7 @@ public record DocumentListItem(
         DocumentVisibility visibility,
         String category,
         UUID familyId,
+        UUID subjectId,
         DocumentReferenceType referenceType,
         DocumentStatus status
 ) {

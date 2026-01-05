@@ -43,7 +43,8 @@ import java.util.UUID;
                 @Index(name = "idx_document_owner_drive_file", columnList = "owner_id, drive_file_id", unique = true),
                 @Index(name = "idx_document_family_visibility", columnList = "family_id, visibility"),
                 @Index(name = "idx_document_owner_status", columnList = "owner_id, status"),
-                @Index(name = "idx_document_visibility_status", columnList = "visibility, status")
+                @Index(name = "idx_document_visibility_status", columnList = "visibility, status"),
+                @Index(name = "idx_document_subject_created", columnList = "subject_id, created_date")
         })
 @DynamicUpdate
 public class Document extends AbstractAuditable<Long> {
@@ -58,6 +59,10 @@ public class Document extends AbstractAuditable<Long> {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "family_id")
     private Family family;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "subject_id")
+    private Subject subject;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "visibility", nullable = false, length = 20)

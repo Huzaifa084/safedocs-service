@@ -33,7 +33,7 @@ public class FamilyMember extends AbstractAuditable<Long> {
 
     @PrePersist
     void initDefaults() {
-        if (role == null) role = FamilyRole.MEMBER;
+        if (role == null) role = FamilyRole.VIEWER;
         if (active == null) active = true;
     }
 }
