@@ -13,6 +13,7 @@ import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.dto.document.BulkUpdateDocumentSubjectResponse;
 import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsRequest;
 import org.devaxiom.safedocs.dto.document.BulkDeleteDocumentsResponse;
+import org.devaxiom.safedocs.dto.document.ReplaceDocumentFileRequest;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentReferenceType;
@@ -186,6 +187,42 @@ public class DocumentService {
             if (doc.getSubject() != null) {
                 subjectService.touchDocumentActivity(doc.getSubject());
             }
+        }
+
+        return toResponse(doc);
+    }
+
+    public DocumentResponse replaceDocumentFile(UUID documentId, ReplaceDocumentFileRequest request, User currentUser) {
+        if (currentUser == null) throw new UnauthorizedException("Unauthorized");
+        if (request == null) throw new BadRequestException("request is required");
+        validateReplaceFileRequest(request);
+
+        Document doc = getActiveDocument(documentId);
+        assertCanUpdate(doc, currentUser);
+
+        String newDriveFileId = normalizeId(request.driveFileId());
+        if (!Objects.equals(doc.getDriveFileId(), newDriveFileId)) {
+            final UUID currentPublicId = doc.getPublicId();
+            documentRepository.findByOwnerIdAndDriveFileId(doc.getOwner().getId(), newDriveFileId)
+                    .filter(existing -> existing.getPublicId() != null && !existing.getPublicId().equals(currentPublicId))
+                    .ifPresent(existing -> {
+                        throw new BadRequestException("driveFileId is already used by another document");
+                    });
+        }
+
+        doc.setDriveFileId(newDriveFileId);
+        doc.setFileName(trimOrNull(request.fileName()));
+        doc.setMimeType(trimOrNull(request.mimeType()));
+        doc.setSizeBytes(request.sizeBytes());
+        doc.setDriveCreatedAt(request.driveCreatedAt());
+        doc.setDriveWebViewLink(trimOrNull(request.driveWebViewLink()));
+        doc.setDriveMd5(trimOrNull(request.driveMd5()));
+
+        doc = documentRepository.save(doc);
+
+        documentActivityService.record(doc, currentUser, DocumentActivityAction.UPLOAD);
+        if (doc.getSubject() != null) {
+            subjectService.touchDocumentActivity(doc.getSubject());
         }
 
         return toResponse(doc);
@@ -662,7 +699,22 @@ public class DocumentService {
         if (request.fileName() == null || request.fileName().isBlank()) {
             throw new BadRequestException("fileName is required");
         }
+        if (request.sizeBytes() != null && request.sizeBytes() < 0) {
+            throw new BadRequestException("sizeBytes must be >= 0");
+        }
         if (request.visibility() == null) throw new BadRequestException("visibility is required");
+    }
+
+    private void validateReplaceFileRequest(ReplaceDocumentFileRequest request) {
+        if (request.driveFileId() == null || request.driveFileId().isBlank()) {
+            throw new BadRequestException("driveFileId is required");
+        }
+        if (request.fileName() == null || request.fileName().isBlank()) {
+            throw new BadRequestException("fileName is required");
+        }
+        if (request.sizeBytes() != null && request.sizeBytes() < 0) {
+            throw new BadRequestException("sizeBytes must be >= 0");
+        }
     }
 
     private void enforceImmutableUpdates(UpdateDocumentRequest request) {

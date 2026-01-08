@@ -16,6 +16,7 @@ import org.devaxiom.safedocs.dto.document.DocumentReconcileRequest;
 import org.devaxiom.safedocs.dto.document.DocumentReconcileResponse;
 import org.devaxiom.safedocs.dto.document.DocumentResponse;
 import org.devaxiom.safedocs.dto.document.DocumentShareResponse;
+import org.devaxiom.safedocs.dto.document.ReplaceDocumentFileRequest;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentRequest;
 import org.devaxiom.safedocs.dto.document.UpdateDocumentSubjectRequest;
 import org.devaxiom.safedocs.enums.DocumentVisibility;
@@ -63,6 +64,15 @@ public class DocumentController {
         User user = requireUser();
         DocumentResponse resp = documentService.updateDocument(parseId(id), request, user);
         return ResponseBuilder.success(resp, "Document updated");
+    }
+
+    @PostMapping("/{id}/replace-file")
+    public BaseResponseEntity<DocumentResponse> replaceFile(
+            @PathVariable("id") String id,
+            @Valid @RequestBody ReplaceDocumentFileRequest request) {
+        User user = requireUser();
+        DocumentResponse resp = documentService.replaceDocumentFile(parseId(id), request, user);
+        return ResponseBuilder.success(resp, "Document file updated");
     }
 
     @GetMapping
